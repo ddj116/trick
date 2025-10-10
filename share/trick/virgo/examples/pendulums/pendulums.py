@@ -13,6 +13,9 @@ parser.add_argument("--scene", help="Scene YAML config file to load",
                     default=os.path.join(thisFileDir,'scene.yml'))
 parser.add_argument("--data-dir", help="Directory containing the CSV data",
                     default=thisFileDir)
+parser.add_argument("--headless", action="store_true",
+                    help="Render to images instead of providing an"
+                    " interactive window")
 args = parser.parse_args()
 
 class PendulumExample:
@@ -23,7 +26,8 @@ class PendulumExample:
             scene = yaml.safe_load(file) 
         # VirgoDataPlayback is the VirgoScene we want because it's built
         # to consume TrickPy-compatible data, which log_pendulum.csv meets
-        self.v = VirgoDataPlayback(run_dir=args.data_dir, scene=scene)
+        self.v = VirgoDataPlayback(run_dir=args.data_dir, scene=scene,
+                                    headless=args.headless)
         # Initialize the scene but do not render yet
         self.v.initialize()
 

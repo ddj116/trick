@@ -9,7 +9,7 @@ from VirgoNode import VirgoSceneNode, VirgoSceneNodeVector
 from VirgoSplash import VirgoSplash
 
 import os, sys, inspect, time
-import re
+import math, shutil
 import vtk
 import numpy as np
 
@@ -42,6 +42,7 @@ class VirgoInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
 
     def set_renderer(self, renderer):
         self.renderer = renderer
+
 
     # Override base class onChar to ignore the 'e' key
     def onChar(self, obj, event):
@@ -103,7 +104,7 @@ class VirgoControlCenter:
       Picking: The ability to click on objects in the scene to get more info
         about them
     """
-    def __init__(self, renderer, interactor, scene, world_time=0.0):
+    def __init__(self, renderer, render_window, interactor, scene, world_time=0.0):
         """
         Constructor
         """
@@ -114,6 +115,7 @@ class VirgoControlCenter:
         self.mode = 'PLAYING'              # 'PAUSED' or 'PLAYING'
         self.fs = 14      # font size
         self.renderer = renderer
+        self.render_window = render_window
         self.camera = renderer.GetActiveCamera()
         self.camera_follows = None  # if the camera should follow an actor, this is the one
         # TODO this hardcoded value assummes the actor is HUGE
@@ -137,9 +139,10 @@ class VirgoControlCenter:
         self.original_colors = {}  # Store original colors for actors
 
         # TODO: do we need to check this is smaller than minimum delta t in logged data?
-        self.frame_rate = 50 # Frame rate for timer callback (millisec)
+        self.callback_rate = 50 # Frame rate for timer callback (millisec)
         # self.dt: Increment time by this amount every timer update (sec)
-        self.default_dt = self.dt = self.frame_rate / 1000.0
+        self.default_dt = self.dt = self.callback_rate / 1000.0
+        self.frame_rate = 1/self.dt
         self.playback_speed = 1.0  # Speed of playback
         # Default playback speeds
         self.available_speeds = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]
@@ -291,7 +294,7 @@ class VirgoControlCenter:
         Does not render.
         """
         hud_padding = 20 # pixels
-        window_width, window_height  = self.interactor.GetRenderWindow().GetSize()
+        window_width, window_height  = self.render_window.GetSize()
         
         ############################################################################
         # Picked Actor (or last picked if nothing picked) information in bottom left
@@ -862,7 +865,7 @@ class VirgoControlCenter:
         self.interactor.AddObserver("KeyPressEvent", self.on_key_press)
         # Not operational, see comment in orient_labels_to_camera() 
         #self.interactor.AddObserver("StartEvent", self.orient_labels_to_camera)
-        self.timer_id = self.interactor.CreateRepeatingTimer(self.frame_rate)
+        self.timer_id = self.interactor.CreateRepeatingTimer(self.callback_rate)
 
     def create_skybox(self):
         """
@@ -914,22 +917,35 @@ class VirgoScene:
     Expects to consume a dict describing the scene dict and populates
     self.nodes (the main scene graph) and other internal members
     """
-    def __init__(self, scene, verbosity=1):
+    def __init__(self, scene, verbosity=1, headless=False, 
+                 images_dir="/tmp/", video_filename="/tmp/virgo.mp4"):
+        self.scene = scene # Dict of scene info from YAML file
         self.verbosity = verbosity
+        self.headless = headless
+        self.images_dir = images_dir
+        self.video_filename = video_filename
         self.fs = 14      # font size
         self.max_sim_time = 0.0
-        self.scene = scene # Dict of scene info from YAML file
         self.vdl = None    # VDL: Virgo Data Loader
         self._verify_scene()
         self.nodes = {}    # Scene graph dict of VirgoSceneNode instances
 
         self.background_color = [0.0, 0.0, 0.05]
         self.description = "Untitled VIRGO Window"
+        self.name = "Untitled_VIRGO_scene"
+        self.window_width = 800
+        self.window_height = 600
         # TODO: this checking can be removed once the dict verifier is in place
         if 'background_color' in self.scene:
             self.background_color = self.scene['background_color']
         if 'description' in self.scene:
             self.description = self.scene['description']
+        if 'name' in self.scene:
+            self.description = self.scene['name']
+        if 'resolution' in self.scene:
+            self.window_width, self.window_height = map(int, self.scene['resolution'].split('x'))
+
+        self.headless_output_dir = os.path.join(self.images_dir, self.name)
 
         self.renderer = vtk.vtkRenderer()
         self.render_window = vtk.vtkRenderWindow()
@@ -937,7 +953,8 @@ class VirgoScene:
     
         # Set better camera interaction
         self.interactor_style = VirgoInteractorStyle()
-        self.controller = VirgoControlCenter(self.renderer, self.interactor, self.scene)
+        self.controller = VirgoControlCenter(self.renderer, self.render_window,
+                                             self.interactor, self.scene)
         self.initialized = False
 
     def initialize(self):
@@ -950,9 +967,17 @@ class VirgoScene:
 
         self.renderer.SetBackground(self.background_color)
         self.render_window.AddRenderer(self.renderer)
-        self.render_window.SetSize(1920, 1080)
+        self.render_window.SetSize(self.window_width, self.window_height)
         self.render_window.SetWindowName(self.description)
-        self.interactor.SetRenderWindow(self.render_window)
+
+        if self.headless:
+            print("Running in headless (off-screen) mode.")
+            self.render_window.OffScreenRenderingOn()
+            # Make sure the destination dir exists
+            os.makedirs(self.headless_output_dir, exist_ok=True)
+        else:
+            print("Running in interactive mode.")
+            self.interactor.SetRenderWindow(self.render_window)
     
         # Set custom interactor style
         self.interactor.SetInteractorStyle(self.interactor_style)
@@ -1225,18 +1250,79 @@ class VirgoScene:
             print("ERROR: Scene is not properly initialized. Exiting.")
             return(1)
     
-        if self.verbosity > 0:
-            print("Entering render window and interactor loop...")
+        if self.headless:
+            self._run_headless()
+        else:
+            if self.verbosity > 0:
+                print("Entering render window and interactor loop...")
+            splash = VirgoSplash(self.render_window, self.interactor)
+            splash.show_splash()
+            self._run_interactive()
 
-        splash = VirgoSplash(self.render_window, self.interactor)
-        splash.show_splash()
+        self.tear_down()
+        return 0
 
+    def _run_interactive(self):
         self.render_window.Render()
         self.interactor.Start()
-        self.tear_down()
 
-        return 0
+    def _run_headless(self):
+        self.controller.mode = 'PLAYING' # Force playing
+        finished = False
+        frame_num = 0
+        percent_complete = 0.0
+        # Dump frames for the scene
+        sys.stdout.write(f'Generating frames:')
+        while not finished:
+          percent_complete = self.controller.world_time / self.controller.max_sim_time * 100.0
+          #import pdb; pdb.set_trace()
+          sys.stdout.write(f'\rGenerating frames: {percent_complete:8.2f}%')
+          sys.stdout.flush()  # Ensure it updates immediately
+          self.controller.update_scene()
+          self.render_window.Render()
+          self._save_frame(frame_num)
+          frame_num += 1
+          if math.isclose(self.controller.world_time, self.controller.max_sim_time):
+          #if math.isclose(self.controller.world_time, 3.0):
+            finished = True
+        percent_complete=100.0
+        sys.stdout.write(f'\rGenerating frames: {percent_complete:8.2f}%\n')
+
+        # Render an mp4 video file
+        try:
+          import imageio
+        except Exception as e:
+          msg = (f"ERROR: imageio not found in virtual environment, cannot render"
+                 f"images in {self.headless_output_dir} to video file"
+                 f" {self.video_filename}.")
+          print(msg)
+        frames = [imageio.imread(f"{self.headless_output_dir}/frame_{i:06d}.png")
+                   for i in range(frame_num)]
+        print(f"Rendering {self.video_filename} ...")
+        imageio.mimsave(self.video_filename, frames, fps=self.controller.frame_rate)
+        print(f"Done.")
+
+    def _save_frame(self, frame_index):
+        w2i = vtk.vtkWindowToImageFilter()
+        w2i.SetInput(self.render_window)
+        w2i.Update()
+
+        filename = os.path.join(self.headless_output_dir,
+                                f"frame_{frame_index:06d}.png")
+
+        writer = vtk.vtkPNGWriter()
+        writer.SetFileName(filename)
+        writer.SetInputConnection(w2i.GetOutputPort())
+        writer.Write()
+        if self.verbosity > 3:
+            print(f"Saved frame {frame_index:04d}")
 
     def tear_down(self):
         self.renderer.RemoveAllObservers()
         self.interactor.RemoveAllObservers()
+        if os.path.isdir(self.headless_output_dir):
+          try:
+            shutil.rmtree(self.headless_output_dir)
+            print(f"Directory '{self.headless_output_dir}' removed successfully")
+          except OSError as e:
+            print(f"Error: {e}")
