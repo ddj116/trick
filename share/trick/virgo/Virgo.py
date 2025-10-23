@@ -265,6 +265,7 @@ class VirgoControlCenter:
             print("ERROR: verbosity must be an integer")
         else:
             self.verbosity = value
+
     def set_actors(self, actors_dict):
         self.actors = actors_dict
 
@@ -1220,9 +1221,10 @@ class VirgoScene:
     self.nodes (the main scene graph) and other internal members
     """
     def __init__(self, scene, verbosity=1, headless=False, stop_time=None,
-                 images_dir="/tmp/", video_filename="/tmp/virgo.mp4"):
+                 images_dir="/tmp/", video_filename="/tmp/virgo.mp4", splash=True):
         self.scene = scene # Dict of scene info from YAML file
         self.verbosity = verbosity
+        self.splash = splash
         self.headless = headless
         # TODO: consider using stop_time in interactive mode as well
         self.stop_time = stop_time  # For headless mode, stop at this time
@@ -1251,6 +1253,8 @@ class VirgoScene:
             self.description = self.scene['name']
         if 'resolution' in self.scene:
             self.window_width, self.window_height = map(int, self.scene['resolution'].split('x'))
+        if 'splash' in self.scene:
+            self.splash = self.scene['splash']
 
         self.render_window = vtk.vtkRenderWindow()
         self.renderers = {}
@@ -1568,8 +1572,11 @@ class VirgoScene:
         else:
             if self.verbosity > 0:
                 print("Entering render window and interactor loop...")
-            splash = VirgoSplash(self.render_window, self.interactor)
-            splash.show_splash()
+
+            if self.splash == True:
+                splash = VirgoSplash(self.render_window, self.interactor)
+                splash.show_splash()
+
             self._run_interactive()
 
         self.tear_down()
