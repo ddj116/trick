@@ -7,9 +7,10 @@ leveraging python-VTK
 from VirgoActor import VirgoActor
 from VirgoNode import VirgoSceneNode, VirgoSceneNodeVector
 from VirgoSplash import VirgoSplash
+from VirgoUtils import cprint
 
 import os, sys, inspect, time, tempfile
-import math, shutil
+import math, textwrap
 import vtk
 import numpy as np
 
@@ -814,10 +815,14 @@ class VirgoControlCenter:
             self.mode = 'PAUSED'
             self.decrement_time()
             self.update_nodes()
+            if self.camera_follows:
+                self.camera_follow(self.camera_follows)
         if key == "Right" or key == 'period':
             self.mode = 'PAUSED'
             self.increment_time()
             self.update_nodes()
+            if self.camera_follows:
+                self.camera_follow(self.camera_follows)
         self.update_scene()
 
     def cycle_playback_speed(self):
@@ -908,13 +913,19 @@ class VirgoControlCenter:
         should consider the ability to change which actor is followed during
         runtime. We could consider using self.picked_actor to drive the camera
         follow mechanism.
+
+        TODO: shouldn't we sync_cameras() here?
         """
         # Default camera if the scene has given us no information on it
         self.cameras['foreground'].SetPosition(-10.0, 0.0, 0.0)
         self.cameras['foreground'].SetFocalPoint(0, 0, 0)
         self.cameras['foreground'].SetViewUp(0.0, 0.0, 1.0)  # Z is up
-        # TODO not sure this goes best here, also do we want a user to be able
+        # TODO not sure these go best here, also do we want a user to be able
         # to change this in the yaml file?
+        # NOTE this skybox clipping range appears optimal and I'm not sure
+        # why, other ranges result in the skybox becoming erratic in scenes
+        # with inertial sized bodies and distances
+        self.cameras['skybox'].SetClippingRange(1e6, 1e10)
         self.cameras['background'].SetClippingRange(1e10, 1e17)
 
         # If the camera is setup to follow a node/actor, save that node in
@@ -1086,44 +1097,24 @@ class VirgoControlCenter:
         TODO: This should probably live in another class and we just
         retrieve it here
         """
-        # Load cube map texture
+        texture_reader = vtk.vtkJPEGReader()
+        texture_reader.SetFileName(
+            os.path.join(thisFileDir,"images/space/starmap_2020_8k.jpg"))
+        texture_reader.Update()
+        
         texture = vtk.vtkTexture()
-        texture.CubeMapOn()
+        texture.SetInputConnection(texture_reader.GetOutputPort())
+        texture.MipmapOn()
         texture.InterpolateOn()
-        
-        # File names for each direction
-        faces = {
-            'posx': os.path.join(thisFileDir, 'images/space_cubemap/posx.jpg'),
-            'negx': os.path.join(thisFileDir, 'images/space_cubemap/negx.jpg'),
-            'posy': os.path.join(thisFileDir, 'images/space_cubemap/posy.jpg'),
-            'negy': os.path.join(thisFileDir, 'images/space_cubemap/negy.jpg'),
-            'posz': os.path.join(thisFileDir, 'images/space_cubemap/posz.jpg'),
-            'negz': os.path.join(thisFileDir, 'images/space_cubemap/negz.jpg')
-        }
-        
-        # Map each direction to the correct image
-        imageReaders = {}
-        face_order = ['posx', 'negx', 'posy', 'negy', 'posz', 'negz']
-        for i, face in enumerate(face_order):
-            reader = vtk.vtkJPEGReader()
-            reader.SetFileName(faces[face])
-            reader.Update()
-            texture.SetInputDataObject(i, reader.GetOutput())
+        texture.RepeatOn()
         
         # Create the skybox
         skybox = vtk.vtkSkybox()
         skybox.SetTexture(texture)
-        # Off by default as this doesn't yet work well in scenes with large and
-        # small objects
-        skybox.SetVisibility(False)
+        skybox.SetProjectionToSphere()  # For equirectangular maps
+        skybox.SetVisibility(False)     # Off by default
 
-        # TODO: I would think 'background' would be better here but there's some
-        # issues with rotating the scene with the skybox in the background layer.
-        # With it in the foreground it behaves better in scenes with actors with
-        # reasonable scales/positions (relative state) but glitches with large
-        # scenes and inertial coordinates. Also it covers the sun in the foreground
-        # which isn't ideal
-        self.renderers['foreground'].AddActor(skybox)
+        self.renderers['skybox'].AddActor(skybox)
         return skybox
 
     def init_lighting(self):
@@ -1250,7 +1241,7 @@ class VirgoScene:
         if 'description' in self.scene:
             self.description = self.scene['description']
         if 'name' in self.scene:
-            self.description = self.scene['name']
+            self.name = self.scene['name']
         if 'resolution' in self.scene:
             self.window_width, self.window_height = map(int, self.scene['resolution'].split('x'))
         if 'splash' in self.scene:
@@ -1261,13 +1252,17 @@ class VirgoScene:
         # We have multiple renderers to help overcome single precision depth buffer issues.
         # Each renderer operates in it's own layer composited on top of the last,
         # background first ending with foreground
+        self.renderers['skybox'] = vtk.vtkRenderer()  # For actors 1e-10 -> 1e17
+        self.renderers['skybox'].SetLayer(0)
+        self.renderers['skybox'].InteractiveOff()
+        self.renderers['skybox'].SetBackground(self.background_color)
         self.renderers['background'] = vtk.vtkRenderer()  # For actors 1e-10 -> 1e17
-        self.renderers['background'].SetLayer(0)
+        self.renderers['background'].SetLayer(1)
         self.renderers['background'].InteractiveOff()
         self.renderers['background'].SetBackground(self.background_color)
         # TODO: probably want a 'midground' renderer      # For actors 1e-4 -> 1e11
         self.renderers['foreground'] = vtk.vtkRenderer()  # For actors 1e-2 -> 1e5
-        self.renderers['foreground'].SetLayer(1)
+        self.renderers['foreground'].SetLayer(2)
         self.renderers['foreground'].SetBackground(self.background_color)
         self.render_window.SetNumberOfLayers(len(self.renderers.keys()))
         self.interactor = vtk.vtkRenderWindowInteractor()
@@ -1566,6 +1561,8 @@ class VirgoScene:
         if not self.controller.is_initialized():
             print("ERROR: Scene is not properly initialized. Exiting.")
             return(1)
+        if self.verbosity > 0:
+            self.report()
     
         if self.headless:
             self.run_headless(stop_time=self.stop_time)
@@ -1581,6 +1578,19 @@ class VirgoScene:
 
         self.tear_down()
         return 0
+
+    def report(self):
+        # Get some diagnostics about how much RAM we are using
+        cprint(f"Scene: {self.name}", bold=True)
+        cprint(f"Description:", bold=True)
+        cprint(textwrap.indent(f"{self.description}", "  "), bold=True)
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            memory_mb = process.memory_info().rss / 1024 ** 2  # RSS = Resident Set Size
+            cprint(f"Current RAM usage: {memory_mb:.2f} MB")
+        except Exception as e:
+            pass
 
     def _run_interactive(self):
         self.render_window.Render()
