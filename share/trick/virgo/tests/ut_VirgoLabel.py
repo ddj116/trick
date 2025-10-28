@@ -1,8 +1,6 @@
-import os, sys, shutil, inspect
+import os, sys, inspect
 import unittest
 import numpy as np
-import vtk
-import pdb
 
 # Add path to virgo module
 thisFileDir = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0)))
@@ -16,21 +14,18 @@ from VisualizableTestCase import VisualizableTestCase
 def suite():
     """Create test suite from test cases here and return"""
     suites = []
-    suites.append(unittest.TestLoader().loadTestsFromTestCase(VirgoSceneNodeTestCase))
+    suites.append(unittest.TestLoader().loadTestsFromTestCase(VirgoLabelTestCase))
     return (suites)
 
-class VirgoSceneNodeTestCase(VisualizableTestCase):
+class VirgoLabelTestCase(VisualizableTestCase):
 
     def setUp(self):
-        VisualizableTestCase().setUp()
         # Actors to be used in node construction
         self.label1 = VirgoLabel(name='myname', text='simple text')
         self.label2 = VirgoLabel(name='velocity', text='vel: {vel[0]}')
         self.label3 = VirgoLabel(name='velocity', text='vel: {vel[0]:.2f}')
 
     def tearDown(self):
-        self.vis()
-        super().tearDown()
         self.instance = None
         self.label1 = None
         self.label2 = None
@@ -49,10 +44,22 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         self.assertEqual(self.label2.name, 'velocity')
         self.assertEqual(self.label3.name, 'velocity')
 
+
+    def test_labels_enabled(self):
+        """
+        Enable the labels to show they are visible
+        """
+
+        self.label1.enable()
+        self.label2.set_position([0, 0, 1])
+        self.label2.enable()
+        self.label3.set_position([0, 0, 2])
+        self.label3.enable()
+
         # Visualize
-        self.instance = self.label1.get_follower()
-        self.show_grid = True
-        #self.visualize = True
+        actors = [self.label1.get_follower(), self.label2.get_follower(),
+                  self.label3.get_follower()]
+        #self.vis(actors=actors, show_origin=1, show_grid=0)
 
     def test_find_clauses(self):
         """

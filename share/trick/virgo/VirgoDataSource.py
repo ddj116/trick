@@ -98,6 +98,7 @@ class VirgoDataFileSource(VirgoDataSource):
         self._current_time = 0.0
         self._current_time_idx = 0
         self.initialized = False
+        self.name = name
         self.additional_data = dict(kwargs)
 
     def is_initialized(self):

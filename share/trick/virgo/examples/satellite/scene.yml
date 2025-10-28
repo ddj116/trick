@@ -9,6 +9,7 @@ description: |
      fire, yellow cylinders are set to visible which indicate a force is being
      applied
 start_mode: PAUSED
+end_mode: PAUSED
 background_color: [0.0, 0.0, 0.05]
 highlight_color: [1.0, 1.0, 0.0]
 playback_speeds: [1.0, 5.0, 10.0, 20.0, 50.0, 100.0]

@@ -59,8 +59,9 @@ class VirgoDataPlayback(VirgoScene):
         opacities = None
         times = None
         driven_by = None
+        additional_data={}
         if 'driven_by' in actor_scene_dict:
-            driven_by= actor_scene_dict['driven_by']
+            driven_by= dict(actor_scene_dict['driven_by']) # make a copy
             if 'time' in driven_by:
                 times = self.vdl.get_alias_datas(alias=driven_by['time'])
             if 'pos' in driven_by:
@@ -71,14 +72,29 @@ class VirgoDataPlayback(VirgoScene):
                 scales = self.vdl.get_alias_data(alias=driven_by['scale'])
             if 'opacity' in driven_by:
                 opacities = self.vdl.get_alias_data(alias=driven_by['opacity'])
-            # Create the data source
-            vds = VirgoDataFileSource(times=times, rotations=rotations,
-                                      positions=positions, scales=scales,
-                                      opacities=opacities )
-            vds.initialize()
-            node.set_data_source(vds)
         else:
             node.set_static(True)
+
+        if ('provide_aliases' in actor_scene_dict and 
+            isinstance(actor_scene_dict['provide_aliases'], list)):
+            add_data= list(actor_scene_dict['provide_aliases']) # make a copy
+            # For every additional_data requested, get the full time-history
+            # of that data from the data loader
+            for alias in add_data:
+                additional_data[alias] = self.vdl.get_alias_data(alias=alias)
+
+        if ( positions or rotations or scales or opacities or times or
+             additional_data):
+            # Create the data source. Pass additional_data dict through as kwargs
+            # which make those aliases available to the node
+            vds = VirgoDataFileSource(times=times, rotations=rotations,
+                                      positions=positions, scales=scales,
+                                      opacities=opacities, **additional_data )
+            vds.initialize()
+            #import pdb; pdb.set_trace()
+            node.set_data_source(vds)
+
+
         # If labels: are provided for the node/actor, 
         if 'labels' in actor_scene_dict:
             labels = actor_scene_dict['labels']

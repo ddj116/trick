@@ -38,19 +38,24 @@ class VirgoDataPlaybackInitTestCase(unittest.TestCase):
         self.scene['data_source']['trickpy']['pos']['var']  = "position[0-2]"
 
     def tearDown(self):
-        self.instance.tear_down()
-        self.instance = None
+        pass
 
     def test_init_RUN_0(self):
         self.instance = VirgoDataPlayback(
             run_dir=os.path.join(tests_dir, 'trickpy_data_source/RUN_0'),
-            scene=self.scene)
+            scene=self.scene, headless=True)
 
+        # NOTE: if headless=False passed into self.instance, this initialize()
+        # method somehow will affect later suite tests. I noticed the
+        # self.instance.run() in a completely different suite would render an
+        # image to a window even though that instance has headless=True. I never
+        # understood this and moved forward with headless=True on all
+        # self.instance constructors, as that's a better approach anyhow. Still
+        # wish I knew how this could happen - Jordan 11/2025
         self.instance.initialize()
     
-class VirgoDataPlaybackFunctionsTestCase(VisualizableTestCase):
+class VirgoDataPlaybackFunctionsTestCase(unittest.TestCase):
     def setUp(self):
-        VisualizableTestCase().setUp()
         self.scene = {}
         self.scene['actors']  = {}
         self.scene['actors']['test_actor'] = {'mesh': 'VIRGO_PREFAB:cube'}
@@ -65,39 +70,24 @@ class VirgoDataPlaybackFunctionsTestCase(VisualizableTestCase):
         self.scene['data_source']['trickpy']['pos']['group']  = "one_body_static"
         self.scene['data_source']['trickpy']['time']['var']  = "sys.exec.out.time"
         self.scene['data_source']['trickpy']['pos']['var']  = "position[0-2]"
-        
 
         self.instance = VirgoDataPlayback(
             run_dir=os.path.join(tests_dir, 'trickpy_data_source/RUN_0'),
             scene=self.scene)
 
     def tearDown(self):
-        # DO NOT super().tearDown() here, in this file we are calling
-        # self.vis(actor) manually. If you super().tearDown() it gets
-        # called twice and segfaults sometimes. This manual calling
-        # approach might be better than doing it during tearDown anyhow
-        # and maybe we should move everything to this approach
-        self.instance = None
-        del self.instance
+        pass
 
     def test_create_actor(self):
         actor_dict = self.scene['actors']['test_actor']
         actor = self.instance.create_actor('test_actor', actor_dict)
         self.assertEqual(actor.name, 'test_actor')
-        # TODO: There is still an issue with "Bus error" and "segmentation fault"
-        # When multiple tests call self.vis() in a single TestCase
-        #self.visualize=True
-        #self.vis(actor)
 
     def test_create_vector(self):
         vector_dict = self.scene['vectors']['test_vector']
         vector = self.instance.create_vector('test_vector', vector_dict)
         self.assertEqual(vector.name, 'test_vector')
         self.assertEqual(vector.mesh, 'VIRGO_PREFAB:arrow')
-        # TODO: There is still an issue with "Bus error" and "segmentation fault"
-        # When multiple tests call self.vis() in a single TestCase
-        #self.visualize=True
-        #self.vis(vector)
 
     def test_create_custom_vector(self):
         """
@@ -113,10 +103,7 @@ class VirgoDataPlaybackFunctionsTestCase(VisualizableTestCase):
         custom_vector = self.instance.create_vector('test_vector', vector_dict)
         self.assertEqual(custom_vector.name, 'test_vector')
         self.assertEqual(custom_vector.mesh, 'VIRGO_PREFAB:arrow')
-        # TODO: There is still an issue with "Bus error" and "segmentation fault"
-        # When multiple tests call self.vis() in a single TestCase
-        #self.visualize=True
-        #self.vis(custom_vector)
+
 
 class VirgoDataPlaybackHeadlessTestCase(unittest.TestCase):
     def setUp(self):
@@ -136,8 +123,7 @@ class VirgoDataPlaybackHeadlessTestCase(unittest.TestCase):
         self.scene['data_source']['trickpy']['pos']['var']  = "position[0-2]"
 
     def tearDown(self):
-        self.instance.tear_down()
-        self.instance = None
+        pass
 
     def test_headless_RUN_0_no_driven_by(self):
         """
@@ -152,8 +138,8 @@ class VirgoDataPlaybackHeadlessTestCase(unittest.TestCase):
         with patch('sys.stdout', new_callable=io.StringIO) as mock_stdout:
             self.instance.run()
             printed_output = mock_stdout.getvalue().strip()
-            # 3. Assert the expected return value (optional but good practice)
             self.assertIn("Nothing to render", printed_output)
+
 
     def test_headless_RUN_0_driven_by(self):
         """

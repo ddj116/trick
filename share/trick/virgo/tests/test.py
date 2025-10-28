@@ -2,6 +2,11 @@
 
 """Unit test script to test VIRGO module"""
 
+# An attempt to workaround unsafe garbage collection interacting with python VTK
+# See the following link for details on why we do this
+# https://discourse.vtk.org/t/looking-for-guidance-on-writing-python-unit-tests-using-python-vtk/16148/6
+import gc; gc.disable()
+
 import os, sys, pdb
 import unittest, argparse
 
@@ -25,42 +30,37 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
       description='Run all VIRGO unit tests.'
     )
-    parser.add_argument('-v', '--visualize', action="store_true",
-      help='Visualize all tests configured with this capability by setting'
-      ' VIRGO_VISUALIZE_TESTS=1 before execution'
-    )
-    parser.add_argument('-s', '--save-images', action="store_true",
-      help='Save images for all tests configured with this capability by'
-      ' setting VIRGO_WRITE_TEST_IMAGES=1 before execution'
-    )
-    parser.add_argument('--ci-mode', action="store_true",
+    parser.add_argument('--headless', action="store_true",
       help='Forcibly suppress all rendered windows by setting'
-      ' VIRGO_BATCH_TESTS_OVERRIDE=1 before execution. Overrides -v.'
+      ' VIRGO_BATCH_TESTS_OVERRIDE=1 before execution.'
+    )
+    parser.add_argument('-t', '--times-to-repeat', default=1, type=int,
+      help='Re-run all unit tests this number of times. This is helpful in'
+      'testing determinism but be careful because it uses a lot of memory'
     )
     args = parser.parse_args()
-    if args.visualize:
-      os.environ["VIRGO_VISUALIZE_TESTS"] = "1"
-    if args.save_images:
-      os.environ["VIRGO_WRITE_TEST_IMAGES"] = "1"
-    if args.ci_mode: # Never bring up a rendering window
+
+    if args.headless: # Never bring up a rendering window
       os.environ["VIRGO_BATCH_TESTS_OVERRIDE"] = "1"
 
+    for i in range(args.times_to_repeat):
+        print(f"\n--- Suite execution {i+1}/{args.times_to_repeat}---")
+        # Create the suite
+        suites = unittest.TestSuite()
 
-    # Create the suite
-    suites = unittest.TestSuite()
+        suites.addTests(ut_VirgoTrickpyFileLoader.suite())
+        suites.addTests(ut_VirgoDataFileSource.suite())
+        suites.addTests(ut_VirgoActor.suite())
+        suites.addTests(ut_VirgoSceneNode.suite())
+        suites.addTests(ut_VirgoLabel.suite())
+        suites.addTests(ut_VirgoDataPlayback.suite())
 
-    suites.addTests(ut_VirgoTrickpyFileLoader.suite())
-    suites.addTests(ut_VirgoDataFileSource.suite())
-    suites.addTests(ut_VirgoActor.suite())
-    suites.addTests(ut_VirgoSceneNode.suite())
-    suites.addTests(ut_VirgoLabel.suite())
-    # NOTE: this suite is last purposefully as putting it earlier appears to
-    # result in random "bus error" and/or "segfault" messages when
-    # self.visualize = True which results in rendered windows of unit tests.
-    # Before VirgotDataPlayback.tear_down() existed as a function this suite
-    # would somehow find an interactor/controller/renderer from previous tests
-    # even though VirgoDataPlaybackTestCase never calls a function to start a
-    # rendered window. Strange and needs more investigation - Jordan 9/2025
-    suites.addTests(ut_VirgoDataPlayback.suite())
-    # Execute all tests
-    unittest.TextTestRunner(verbosity=2).run(suites)
+        # Execute all tests
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suites)
+        if not result.wasSuccessful():
+            print(f"Failed on execution number {i+1}")
+            sys.exit(1)
+    else:
+        print(f"Executed all tests {args.times_to_repeat} times with success!")
+        sys.exit(0)

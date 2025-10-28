@@ -8,76 +8,32 @@ tests_dir=os.path.join(virgo_dir, 'tests')
 class VisualizableTestCase(unittest.TestCase):
     """
     A base class for VTK unit tests that supports optional visualization of the
-    unit test. It is recommended you call self.vis() from the test's tearDown()
-    function and this feature can be turned on in multiple ways:
-      Globally for all tests:
-        VIRGO_WRITE_TEST_IMAGES=1  # Set environment variable to save images
-        VIRGO_VISUALIZE_TESTS=1    # Set environment variable to visualize scene
-      For individual tests, simply define these before the end of the test
-        self.visualize   = True
-        self.save_images = True
-      The environment variable VIRGO_BATCH_TESTS_OVERRIDE=1 will override all
-      windowed mechanisms, ensuring a render window never appears which is useful
-      when running in a CI system.
+    unit test. It is recommended you call self.vis() from the test you want to
+    see only while developing.
+
+    The environment variable VIRGO_BATCH_TESTS_OVERRIDE=1 will override all
+    windowed mechanisms, ensuring a render window never appears which is useful
+    when running in a CI system.
     """
     def __init__(self, methodName='runTest', *args, **kwargs):
         super().__init__(methodName, *args, **kwargs)
-        self.save_images = os.environ.get('VIRGO_WRITE_TEST_IMAGES', '0') == '1'
-        self.visualize = os.environ.get('VIRGO_VISUALIZE_TESTS', '0') == '1'
         self.batch_override = os.environ.get('VIRGO_BATCH_TESTS_OVERRIDE', '0') == '1'
         self.instance = None
         self.renderer = None
-        self.camear = None
+        self.camera = None
         self.render_window = None
         self.interactor = None
         self.grid_axes = None
         self.origin_axes = None
-        self.show_grid = False
-        self.show_origin = True
-        if not self.batch_override:
-            self.renderer = vtk.vtkRenderer()
-            self.camera = self.renderer.GetActiveCamera()
-            self.render_window = vtk.vtkRenderWindow()
-            self.interactor = vtk.vtkRenderWindowInteractor()
-            self.grid_axes = self.get_grid_axes()
-            self.origin_axes = self.get_origin_axes()
 
     def tearDown(self):
-        # These were suggeseted by AI to help with bus/ssegfault errors
-        # althought it doesn't appear to be sufficient.
-        if hasattr(self, 'interactor') and self.interactor:
-            self.interactor.TerminateApp()  # Stop any interactor event loops
-            self.interactor.DestroyTimer()  # Destroy any timers
-        if hasattr(self, 'observer_tags') and self.observer_tags:
-            for obj, tag in self.observer_tags:
-                obj.RemoveObserver(tag)
-        if hasattr(self, 'renderer') and self.renderer:
-            self.renderer.RemoveAllObservers()
-        if hasattr(self, 'render_window') and self.render_window:
-            self.render_window.Finalize()  # Release OpenGL resources
-        # Explicitly delete objects
-        if hasattr(self, 'interactor'):
-            del self.interactor
-        if hasattr(self, 'render_window'):
-            del self.render_window
-        if hasattr(self, 'renderer'):
-            del self.renderer
-        import gc
-        gc.collect()  # Force garbage collection
+        pass
 
-    def set_origin_axes_length(self, x, y, z):
-        if self.origin_axes:
-            self.origin_axes.SetTotalLength(x, y, z)  # Size of axes (x, y, z lengths)
 
-    def get_grid_axes(self):
+    def get_grid_axes(self, bounds=[-5, 5, -5, 5, -5, 5]):
         # Create a vtkCubeAxesActor for tick marks
         cube_axes = vtk.vtkCubeAxesActor()
-        # TODO: make SetBounds based on the bounding box of self.instance
-        if self.instance:
-            bounds = self.instance.GetBounds()
-            cube_axes.SetBounds(bounds)  # Set bounds for the axes (10x10x10 cube)
-        else:
-            cube_axes.SetBounds(-5, 5, -5, 5, -5, 5)  # Set bounds for the axes (10x10x10 cube)
+        cube_axes.SetBounds(bounds)
         cube_axes.SetXLabelFormat("%.0f")  # Integer labels
         cube_axes.SetYLabelFormat("%.0f")
         cube_axes.SetZLabelFormat("%.0f")
@@ -112,10 +68,6 @@ class VisualizableTestCase(unittest.TestCase):
                 current_bounds[5] = max(current_bounds[5], actor_bounds[5])  # zmax
             self.grid_axes.SetBounds(current_bounds)  # Set bounds for the axes (10x10x10 cube)
 
-    # Do we even need this with automatic grid bounds?
-    #def set_grid_bounds(self, xmin, xmax, ymin, ymax, zmin, zmax):
-    #    if self.grid_axes:
-    #        self.grid_axes.SetBounds(xmin, xmax, ymin, ymax, zmin, zmax)
 
     def get_origin_axes(self):
       origin_axes = vtk.vtkAxesActor()
@@ -127,57 +79,6 @@ class VisualizableTestCase(unittest.TestCase):
       origin_axes.SetZAxisLabelText("z")
       return(origin_axes)
     
-    def visualize_scene(self, actors, axis_length=5):
-        """
-        Optionally visualize a list of actors in a render window.
-        :param actors: A single vtkActor or a list of vtkActors to visualize.
-
-        Set the environment variable VIRGO_VISUALIZE_TESTS=1 to enable
-        visualization during test runs for debugging.  When visualization is
-        enabled, a render window will pop up and block until closed.
-
-        TODO: for some reason when running multiple tests we see these errors
-        non-deterministcally:
-          Bus error: 10 
-          Segmentation fault: 11
-        We clearly are doing something dangerous wrt memory
-        """
-        if not self.visualize or self.batch_override:
-            return
-        print(f"Visualizing. Exit window to continue.")
-        
-        if not isinstance(actors, list):
-            actors = [actors]
-        self.set_grid_bounds_automatic(actors)
-
-        # Create a text actor for the test name itself, lower left corner
-        test_name = vtk.vtkTextActor()
-        test_name.GetTextProperty().SetFontFamilyToCourier()
-        test_name.GetTextProperty().SetFontSize(12)
-        test_name.GetTextProperty().SetColor(1, 1, 1)
-        test_name.SetDisplayPosition(5, 5)
-        test_name.SetInput(f"{self.__class__.__name__} {self._testMethodName}")
-        
-        # Set up the scene
-        for actor in actors:
-            self.renderer.AddActor(actor)
-        self.renderer.AddActor(test_name)
-        if self.show_origin:
-            self.renderer.AddViewProp(self.origin_axes)
-        if self.show_grid:
-            self.renderer.AddActor(self.grid_axes)
-        
-        # Create render window and interactor
-        self.render_window.AddRenderer(self.renderer)
-        self.render_window.SetSize(800, 600)  # Optional: Set window size
-        
-        self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
-        self.interactor.SetRenderWindow(self.render_window)
-        
-        # Render and start interaction (blocks until window is closed)
-        self.renderer.ResetCamera()
-        self.render_window.Render()
-        self.interactor.Start()
 
     def save_scene_to_image(self, actors, filename="scene.png"):
         """
@@ -185,9 +86,6 @@ class VisualizableTestCase(unittest.TestCase):
         :param actors: A single vtkActor or a list of vtkActors to render.
         :param filename: Name of the output image file (e.g., 'scene.png').
         """
-        if not self.save_images:
-            return
-        
         if not isinstance(actors, list):
             actors = [actors]
         
@@ -218,16 +116,79 @@ class VisualizableTestCase(unittest.TestCase):
         writer.SetInputConnection(window_to_image.GetOutputPort())
         writer.Write()
 
-    def vis(self, actors=None):
+    def img(self, actors=None):
+        """
+        Easy function for saving images in a test
+        """
+        self.save_scene_to_image(actors=actors, filename=f".{self.__class__.__name__}_{self._testMethodName}.png")
+
+    def vis(self, actors=None, show_origin=True, oal=[5,5,5], show_grid=True):
         """
         Easy-to-call function that will save scenes to image or show them in an
         interactive window depending on what the user has requested. Does nothing
         if neither of those features is enabled by the user
         """
+        if self.batch_override:
+            return
+        
         if not actors:
           actors=self.instance
-        # TODO some unit tests don't have a self.instance, it needs to be clear how
-        # to set it or come up with a more intuitive approach
-        if self.instance:
-          self.save_scene_to_image(actors=actors, filename=f".{self.__class__.__name__}_{self._testMethodName}.png")
-          self.visualize_scene(actors=actors)
+
+        self.renderer = vtk.vtkRenderer()
+        self.camera = self.renderer.GetActiveCamera()
+        self.render_window = vtk.vtkRenderWindow()
+        self.interactor = vtk.vtkRenderWindowInteractor()
+        self.origin_axes = self.get_origin_axes()
+        self.visualize_scene(actors=actors, show_origin=show_origin, 
+                             oal=oal, show_grid=show_grid)
+
+    def visualize_scene(self, actors, show_origin=True, 
+                        oal=[5, 5, 5], show_grid=True):
+        """
+        Optionally visualize a list of actors in a render window.
+
+        :param actors: A single vtkActor or a list of vtkActors to visualize.
+        :param show_origin: Boolean for showing vtkAxes at origin
+        :param ool: Origin Axes Length (x, y, z) values
+        :param show_grid: Boolean for showing 3D grid with actor(s)
+
+        When visualization is enabled, a render window will pop up and
+        block until closed.
+        """
+        if not isinstance(actors, list):
+            actors = [actors]
+        self.set_grid_bounds_automatic(actors)
+
+        # Create a text actor for the test name itself, lower left corner
+        test_name = f"{self.__module__}.{self.__class__.__name__}.{self._testMethodName}"
+        test_name_text_actor = vtk.vtkTextActor()
+        test_name_text_actor.GetTextProperty().SetFontFamilyToCourier()
+        test_name_text_actor.GetTextProperty().SetFontSize(12)
+        test_name_text_actor.GetTextProperty().SetColor(1, 1, 1)
+        test_name_text_actor.SetDisplayPosition(5, 5)
+        test_name_text_actor.SetInput(test_name)
+        
+        # Set up the scene
+        for actor in actors:
+            self.renderer.AddActor(actor)
+        self.renderer.AddActor(test_name_text_actor)
+        if show_origin:
+            # Size of axes (x, y, z lengths)
+            self.origin_axes.SetTotalLength(oal[0], oal[1], oal[2])
+            self.renderer.AddViewProp(self.origin_axes)
+        if show_grid:
+            self.grid_axes = self.get_grid_axes()
+            self.renderer.AddActor(self.grid_axes)
+        
+        # Create render window and interactor
+        self.render_window.AddRenderer(self.renderer)
+        self.render_window.SetSize(800, 600)  # Optional: Set window size
+        
+        self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+        self.interactor.SetRenderWindow(self.render_window)
+        
+        # Render and start interaction (blocks until window is closed)
+        print(f"Visualizing {test_name}. Exit window (q) to continue.")
+        self.renderer.ResetCamera()
+        self.render_window.Render()
+        self.interactor.Start()

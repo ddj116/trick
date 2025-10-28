@@ -1,8 +1,17 @@
 #!/usr/bin/env python3.11
 
 import os
-import vtk
 import time
+
+from vtkmodules.vtkRenderingCore import (
+  vtkImageActor,
+)
+from vtkmodules.vtkRenderingCore import (
+  vtkRenderer,
+)
+from vtkmodules.vtkIOImage import (
+  vtkPNGReader,
+)
 
 virgo_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -26,22 +35,22 @@ class VirgoSplash():
 
             logo (str):       Path to the png
             duration (float): Duration splash is visible (s)
-            interval (int):   Interval opacity is updated (ms)
+            interval (int):   Interval opacity is updated (s)
 
             start_time (float): Fade start time
             timer_id (int):     Timer ID 
         """ 
 
-        self.image_actor = vtk.vtkImageActor()
-        self.overlay_renderer = vtk.vtkRenderer()
-        self.reader = vtk.vtkPNGReader()          
+        self.image_actor = vtkImageActor()
+        self.overlay_renderer = vtkRenderer()
+        self.reader = vtkPNGReader()          
 
         self.logo = f"{virgo_dir}/logo.png"
         self.render_window = render_window
         self.interactor = interactor
 
-        self.duration = 2.0
-        self.interval = 50
+        self.duration = 2.0 # (s)
+        self.interval = 10  # (s)
 
         self.timer_id = None
         self.start_time = None
@@ -90,7 +99,7 @@ class VirgoSplash():
         """
     
         # Trigger TimerEvent at interval
-        timer_id = self.interactor.CreateRepeatingTimer(self.interval)
+        timer_id = self.interactor.CreateRepeatingTimer((self.interval)*(1000))
 
         start_time = time.time()
         
@@ -101,7 +110,7 @@ class VirgoSplash():
                 # At end of duration, set opacity to 0.0
                 0.0 if (time.time() - start_time) >= self.duration
 
-                # Decrease opacity from 1.0 to 0.0 over interval
+                # Decrease opacity from 1.0 to 0.0 over duration
                 else 1.0 - (time.time() - start_time)/self.duration
             ),
 

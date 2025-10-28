@@ -1,8 +1,6 @@
-import os, sys, shutil, inspect
+import os, sys, inspect
 import unittest
 import numpy as np
-import vtk
-import pdb
 
 # Add path to virgo module
 thisFileDir = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0)))
@@ -23,13 +21,16 @@ def suite():
 class VirgoSceneNodeTestCase(VisualizableTestCase):
 
     def setUp(self):
-        VisualizableTestCase().setUp()
         # Actors to be used in node construction
-        self.teapot1 = VirgoActor(mesh=os.path.join(meshes_dir, 'teapot.obj'))
-        self.teapot2 = VirgoActor(mesh=os.path.join(meshes_dir, 'teapot.obj'))
-        self.teapot3 = VirgoActor(mesh=os.path.join(meshes_dir, 'teapot.obj'))
-        self.teapot4 = VirgoActor(mesh=os.path.join(meshes_dir, 'teapot.obj'),
+        self.teapot1 = VirgoActor(name='teapot1', mesh=os.path.join(meshes_dir, 'teapot.obj'))
+        self.teapot1.initialize()
+        self.teapot2 = VirgoActor(name='teapot2', mesh=os.path.join(meshes_dir, 'teapot.obj'))
+        self.teapot2.initialize()
+        self.teapot3 = VirgoActor(name='teapot3', mesh=os.path.join(meshes_dir, 'teapot.obj'))
+        self.teapot3.initialize()
+        self.teapot4 = VirgoActor(name='teapot4', mesh=os.path.join(meshes_dir, 'teapot.obj'),
              offset_pos=(0.0, 0.0, 0.0), offset_ypr=(0.0, 0.0, 90.0))
+        self.teapot4.initialize()
         # Nodes to test with
         self.node0 = VirgoSceneNode(name='no_actor')
         self.node1 = VirgoSceneNode(name='parent_teapot', actor=self.teapot1)
@@ -38,16 +39,7 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         self.node4 = VirgoSceneNode(name='actor_offset_teapot', actor=self.teapot4)
 
     def tearDown(self):
-        self.vis()
-        super().tearDown()
-        self.instance = None
-        self.teapot1 = None
-        self.teapot2 = None
-        self.teapot3 = None
-        self.node0 = None
-        self.node1 = None
-        self.node2 = None
-        self.node3 = None
+      pass
 
     def test_construction(self):
         """
@@ -105,9 +97,7 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         np.testing.assert_array_equal(node2_local_pos_before, node2_local_pos_after)
 
         #print(f"{node2_world_pos_after}")
-        self.instance = self.node1.assembly
-        self.show_grid = True
-        #self.visualize = True
+        #self.vis(actors=self.node1.assembly, show_origin=1, show_grid=1)
 
 
     def test_add_grandchild(self):
@@ -138,9 +128,7 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         np.testing.assert_array_almost_equal(node3_world_pos_after, node3_world_pos_after_expected, decimal=10)
         np.testing.assert_array_equal(node3_local_pos_before, node3_local_pos_after)
 
-        self.instance = self.node1.assembly
-        self.show_grid = True
-        #self.visualize = True
+        #self.vis(actors=self.node1.assembly, show_origin=1, show_grid=1)
 
     def test_add_child_with_empty_offset(self):
         """
@@ -153,9 +141,7 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
 
         self.node0.show_axes()
         self.node1.show_axes()
-        self.instance = self.node0.assembly
-        self.show_grid = True
-        #self.visualize = True
+        #self.vis(actors=self.node0.assembly, show_origin=1, show_grid=1)
 
     def test_ypr_90_90_90(self):
         """
@@ -167,7 +153,6 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         """
         # Make node2 a child of node1
         self.node1.set_pose(ypr=(90.0, 90.0, 90.0))
-        self.instance = self.node1.assembly
 
         # The matrix we expect inside local_transform after this ypr rotation
         expected_matrix = np.array([
@@ -180,8 +165,7 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
           for j in range(4):
             self.assertAlmostEqual(expected_matrix[i, j], self.node1.local_transform.GetMatrix().GetElement(i, j))
 
-        self.show_grid = True
-        #self.visualize = True
+        #self.vis(actors=self.node1.assembly, show_origin=1, show_grid=1)
 
     def test_ypr_90_neg90_0(self):
         """
@@ -194,7 +178,6 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         # Make node2 a child of node1
         self.node1.set_pose(ypr=(90.0, -90.0, 0.0))
         self.node1.show_axes()
-        self.instance = self.node1.assembly
 
         # The matrix we expect inside local_transform after this ypr rotation
         expected_matrix = np.array([
@@ -206,8 +189,8 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         for i in range(4):
           for j in range(4):
             self.assertAlmostEqual(expected_matrix[i, j], self.node1.local_transform.GetMatrix().GetElement(i, j))
-        self.show_grid = True
-        #self.visualize = True
+
+        #self.vis(actors=self.node1.assembly, show_origin=1, show_grid=1)
 
     def test_ypr_neg90_neg180_neg90(self):
         """
@@ -220,7 +203,6 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         # Make node2 a child of node1
         self.node1.set_pose(ypr=(-90.0, -180.0, -90.0))
         self.node1.show_axes()
-        self.instance = self.node1.assembly
 
         # The matrix we expect inside local_transform after this ypr rotation
         expected_matrix = np.array([
@@ -232,13 +214,12 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         for i in range(4):
           for j in range(4):
             self.assertAlmostEqual(expected_matrix[i, j], self.node1.local_transform.GetMatrix().GetElement(i, j))
-        self.show_grid = True
-        #self.visualize = True
+
+        #self.vis(actors=self.node1.assembly, show_origin=1, show_grid=1)
 
     def test_ypr_180_90_90(self):
         self.node1.set_pose(ypr=(180.0, 90.0, 90.0))
         self.node1.show_axes()
-        self.instance = self.node1.assembly
         mat = self.node1.local_transform.GetMatrix()
 
         # The matrix we expect inside local_transform after this ypr rotation
@@ -251,7 +232,6 @@ class VirgoSceneNodeTestCase(VisualizableTestCase):
         for i in range(4):
           for j in range(4):
             self.assertAlmostEqual(expected_matrix[i, j], self.node1.local_transform.GetMatrix().GetElement(i, j))
-        #self.show_grid = True
-        #self.visualize = True
         #self.node1.silhouette_polydata.SetCamera(self.camera)
+        #self.vis(actors=self.node1.assembly, show_origin=1, show_grid=1)
 

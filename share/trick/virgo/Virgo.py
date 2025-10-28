@@ -7,12 +7,50 @@ leveraging python-VTK
 from VirgoActor import VirgoActor
 from VirgoNode import VirgoSceneNode, VirgoSceneNodeVector
 from VirgoSplash import VirgoSplash
+from VirgoHud import VirgoHud
 from VirgoUtils import cprint
 
 import os, sys, inspect, time, tempfile
 import math, textwrap
-import vtk
 import numpy as np
+
+# --- Modular VTK Imports (Replaces 'import vtk') ---
+from vtkmodules.vtkRenderingCore import (
+  vtkActor,
+  vtkTexture,
+  vtkCellPicker,
+  vtkLight,
+  vtkPolyDataMapper,
+  vtkRenderer,
+  vtkRenderWindow,
+  vtkRenderWindowInteractor,
+  vtkTextActor,
+  vtkSkybox,
+  vtkWindowToImageFilter,
+)
+from vtkmodules.vtkInteractionStyle import (
+  vtkInteractorStyleTrackballCamera,
+)
+from vtkmodules.vtkFiltersSources import (
+  vtkSphereSource,
+)
+from vtkmodules.vtkIOImage import (
+  vtkJPEGReader,
+  vtkPNGWriter,
+)
+from vtkmodules.vtkRenderingOpenGL2 import (
+  vtkCameraPass,
+  vtkOverlayPass,
+  vtkRenderPassCollection,
+  vtkSequencePass,
+  vtkShadowMapPass,
+  vtkTranslucentPass,
+)
+from vtkmodules.vtkCommonCore import (
+  vtkCommand,
+)
+# ---------------------------------------------------
+
 
 thisFileDir = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0)))
 
@@ -20,7 +58,7 @@ thisFileDir = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0)))
 sys.path.append(os.path.abspath(os.path.join(thisFileDir, '../')))
 
 # Example of custom interactor style to override the default 'e' key behavior
-class VirgoInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
+class VirgoInteractorStyle(vtkInteractorStyleTrackballCamera):
     """
     Virgo Interactor Style which adds some capabilities on top of the VTK
     provided vtkInteractorStyleTrackballCamera, mostly to support keeping the
@@ -32,7 +70,7 @@ class VirgoInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         self.sun = None   # Sun sphere actor to update
         self.renderers = renderers
         self.AddObserver("CharEvent", self.onChar)
-        self.AddObserver(vtk.vtkCommand.EndInteractionEvent, self.StoreRelativeCameraInfo, 0.0)
+        self.AddObserver(vtkCommand.EndInteractionEvent, self.StoreRelativeCameraInfo, 0.0)
         self.relative_offset = None  # Positional offset between camera and followed actor
         self.view_up = None    # Camera GetViewUp() direction when self.realtive_offset was stored
 
@@ -56,7 +94,7 @@ class VirgoInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         '''
         Store off the relative offset between the followed node and the camera
         in self.relative_offset. This is called as a callback tied to
-        vtk.vtkCommand.EndInteractionEvent which lets us store the camera information
+        vtkCommand.EndInteractionEvent which lets us store the camera information
         relative to self.node when the interaction with the mouse completes
 
         TODO: I'm not convinced this callback needs to live in the interactor,
@@ -117,7 +155,7 @@ class VirgoControlCenter:
         self.world_time = self.world_time_start = world_time 
         self.wallclock_time = time.time()  # Actual wall clock time in real life
         self.max_sim_time = 0.0            # highest sim time across all dr groups
-        self.images_dir = images_dir
+        self.images_dir = images_dir       # Where pictures go when taken
         if images_dir == None:
             self.images_dir = os.path.expanduser("~/Desktop")
         self.mode = 'PLAYING'              # 'PAUSED' or 'PLAYING'
@@ -128,8 +166,7 @@ class VirgoControlCenter:
         # One camera per renderer
         for r in self.renderers:
             self.cameras[r] = renderers[r].GetActiveCamera()
-        self.camera_follows = None  # if the camera should follow an actor, this is the one
-        # TODO this hardcoded value assummes the actor is HUGE
+        self.camera_follows = None  # If the camera should follow an actor, this is the one
         self.camera_follow_offset = None
         self.interactor = interactor
         self.scene = scene
@@ -141,7 +178,7 @@ class VirgoControlCenter:
         self.text_actors={}
 
         self.help = False  # Display help message when true
-        self.picker = vtk.vtkCellPicker()
+        self.picker = vtkCellPicker()
         self.interactor.SetPicker(self.picker)
         self.picked_actor      = None # Currently picked actor or None if not
         self.near_clipping_plane_tolerance = 0.00005
@@ -169,13 +206,16 @@ class VirgoControlCenter:
         self.dark_ambient = 0.1    # Default ambient light on all nodes in 'realistic'
         self.camera_pass = None    # Used for rendering in 'realistic' lighting mode
         self.verbosity = 1
+        self.hud = None
 
     def initialize(self):
         """
         Set up the scene by:
           * Adding all actors to the renderer
+          * Adding all renderers to the render window
           * Initializing the camera
-          * Setting up lights
+          * Setting skybox, playback speed, and other options
+          * Initialize lighting
         """
         if not os.path.exists(self.images_dir):
           try:
@@ -193,13 +233,13 @@ class VirgoControlCenter:
 
         self._determine_max_sim_time()
         self.update_nodes()
-        self.text_actors['mode'] = self.create_text_actor()
-        self.text_actors['picked'] = self.create_text_actor(pos=[10,10])
-        self.text_actors['time'] = self.create_text_actor()
-        self.text_actors['help'] = self.create_text_actor()
-        self.text_actors['camera'] = self.create_text_actor()
-        self.text_actors['lighting'] = self.create_text_actor()
-        self.text_actors['version'] = self.create_text_actor()
+        self.text_actors['mode'] = self.create_overlay_text_actor()
+        self.text_actors['picked'] = self.create_overlay_text_actor(pos=[10,10])
+        self.text_actors['time'] = self.create_overlay_text_actor()
+        self.text_actors['help'] = self.create_overlay_text_actor()
+        self.text_actors['camera'] = self.create_overlay_text_actor()
+        self.text_actors['lighting'] = self.create_overlay_text_actor()
+        self.text_actors['version'] = self.create_overlay_text_actor()
 
         # TODO these options also need to go in the verifier
         if 'start_mode' in self.scene:
@@ -242,6 +282,9 @@ class VirgoControlCenter:
             self.renderers['background'].AddActor(self.sun_actor)
         self._initialized = True
 
+    def set_hud(self, _class=VirgoHud):
+        self.hud = _class(self.render_window, self.renderers, self.text_actors, self.nodes)
+
     def _determine_max_sim_time(self):
         """
         Store off the highest simulation time known across all non-static
@@ -282,8 +325,8 @@ class VirgoControlCenter:
     def set_trail_actors(self, trail_actors_dict):
         self.trail_actors = trail_actors_dict
 
-    def create_text_actor(self, pos=[0, 0]):
-        text = vtk.vtkTextActor()
+    def create_overlay_text_actor(self, pos=[0, 0]):
+        text = vtkTextActor()
         text.GetTextProperty().SetFontFamilyToCourier()
         text.GetTextProperty().SetFontSize(self.fs)
         text.GetTextProperty().SetColor(1, 1, 1)
@@ -292,7 +335,10 @@ class VirgoControlCenter:
 
     def update_nodes(self):
         '''
-        Move actors into position based on world time compared to data
+        Call update() on all nodes in the scene
+
+        Moves nodes/actors into their positions/orientiations associated
+        with world_time
         '''
         for n in self.nodes:
             self.nodes[n].update(self.world_time)
@@ -305,16 +351,25 @@ class VirgoControlCenter:
             self.nodes[n].reset_trail()
 
     def update_scene(self):
-
+        """
+        The main scene & node update & play/pause control loop
+        swiftly followed by a window Render()
+        """
         if self.mode == 'PLAYING':
+          if math.isclose(self.world_time, self.world_time_start):
+             self.reset_trails()
           if self.world_time <= self.max_sim_time:
             self.world_time += self.dt
             self.update_nodes()
             if self.camera_follows:
-                self.camera_follow(self.camera_follows)
+              self.camera_follow(self.camera_follows)
           else:
-             self.world_time = self.world_time_start
-             self.reset_trails()
+             # TODO need verifier for end_mode
+             if 'end_mode' in self.scene and self.scene['end_mode'] == 'PAUSED':
+               self.mode = 'PAUSED'
+               self.world_time = self.max_sim_time
+             else:
+               self.world_time = self.world_time_start
 
         self.position_sun_light()
         self.position_sun_actor(None, None)
@@ -323,6 +378,17 @@ class VirgoControlCenter:
         self.renderers['foreground'].ResetCameraClippingRange()
         # The end of the main update loop, render the image
         self.render_window.Render()
+
+    def configure_hud(self):
+        """
+        Interface function to the self.hud object's configure() function
+        """
+        self.hud.configure(mode=self.mode, camera_follows=self.camera_follows,
+                           playback_speed=self.playback_speed,
+                           picked_actor=self.picked_actor, picker_tolerance=self.picker_tolerance,
+                           world_time=self.world_time, max_sim_time=self.max_sim_time, 
+                           near_clipping_plane_tolerance=self.near_clipping_plane_tolerance,
+                           lighting_mode=self.lighting_mode, help=self.help)
 
     def on_timer(self, caller, event):
         """
@@ -335,146 +401,6 @@ class VirgoControlCenter:
         if time_one_frame_took > self.dt:
             print(f"WARNING: Frame took {time_one_frame_took} sec to complete which is "
                   f"larger than self.dt ({self.dt}). Playback rate may not be accurate")
-
-    def configure_hud(self):
-        """
-        Configure the heads-up-display in preparation for rendering.
-        Does not render.
-        """
-        hud_padding = 20 # pixels
-        window_width, window_height  = self.render_window.GetSize()
-        ############################################################################
-        # Picked Actor (or last picked if nothing picked) information in bottom left
-        ############################################################################
-        actor = self.picked_actor
-        if actor:
-            text=""
-            parent=""
-            node_curr_time=""
-            label="Node driven position"
-            # TODO: not sure if the distinction between current_position and
-            # world_position is clear enough here.
-            node = self.nodes[actor.name]
-            if not node.is_static():
-                node_curr_time=f" @ t={node.data_source.get_current_time()}"
-            if node.parent:
-                parent = f" (parent: {node.parent.name})"
-            pos = node.get_current_position()
-            if not pos:
-                label="Node world position "
-                pos = self.nodes[actor.name].get_world_position()
-            if isinstance(node, VirgoSceneNodeVector):
-                label="vector tip position "
-            name = actor.name
-            text+=f"{name}{parent}\n {label}: {pos[0]:<10.5f}, {pos[1]:<10.5f}, {pos[2]:<10.5f} units {node_curr_time}"
-            if node.parent:
-                label = "Node  local position"
-                pos = self.nodes[actor.name].get_local_position()
-                text+=f"\n {label}: {pos[0]:<10.5f}, {pos[1]:<10.5f}, {pos[2]:<10.5f} units {node_curr_time}"
-                label = "Actor local position"
-                pos = actor.GetPosition()
-                text+=f"\n {label}: {pos[0]:<10.5f}, {pos[1]:<10.5f}, {pos[2]:<10.5f} units {node_curr_time}"
-            self.text_actors['picked'].SetInput(text)
-        else:
-            self.text_actors['picked'].SetInput("")
-
-        ############################################################################
-        # Mode displayed in top right
-        ############################################################################
-        top_right=f"{self.mode} {self.playback_speed}X"
-        top_right+=f"\nNCPT:{self.near_clipping_plane_tolerance:.2e}"
-        top_right+=f"\nPT:  {self.picker_tolerance:.2e}"
-        self.text_actors['mode'].SetInput(top_right)
-        bounds = [0] * 4 # Get the text bounding box in display coordinates  [xmin, xmax, ymin, ymax]
-        self.text_actors['mode'].GetBoundingBox(self.renderers['foreground'], bounds)
-        text_width = bounds[1] - bounds[0] + 1  # Width in pixels
-        text_height = bounds[3] - bounds[2] + 1  # Height in pixels
-        # Calculate position for bottom-right corner with padding
-        x_pos = window_width - text_width - hud_padding  # Right edge minus width
-        y_pos = window_height - text_height - hud_padding  # Bottom edge (20 pixels from bottom)
-        self.text_actors['mode'].SetPosition(x_pos, y_pos)
-        
-        ############################################################################
-        # Time in top left
-        ############################################################################
-        bounds = [0] * 4 # Get the text bounding box in display coordinates  [xmin, xmax, ymin, ymax]
-        self.text_actors['time'].GetBoundingBox(self.renderers['foreground'], bounds)
-        text_height = bounds[3] - bounds[2] + 1  # Height in pixels
-        y_pos = window_height - text_height - hud_padding
-        self.text_actors['time'].SetPosition(hud_padding, y_pos)
-        percent_complete = self.world_time / self.max_sim_time * 100
-        self.text_actors['time'].SetInput(
-            f"World time: {self.world_time:<10.5f} / {self.max_sim_time} sec [{percent_complete:<4.2f} %]"
-            )
-        ############################################################################
-        # Help message in bottom right (if active)
-        ############################################################################
-        if self.help == True:
-            #self.text_actors['help'].SetDisplayPosition(window_width - 600, 40)
-            self.text_actors['help'].SetInput(
-                f"\nMOUSE"
-                f"\n L-click drag: Rotate"
-                f"\n Shift+L-click: Pan"
-                f"\n Ctrl+L-click: Roll"
-                f"\n Scroll wheel: Dolly In/Out"
-                f"\n R-click: Pick Actor"
-                f"\n"
-                f"\nKEYBOARD"
-                f"\n SPACE: Pause/Play"
-                f"\n p: Take Picture"
-                f"\n s: Cycle playback speeds"
-                f"\n t: Toggle trails"
-                f"\n <- -> : Step back/forward in time"
-                f"\n  -  + : Adjust HUD text size"
-                f"\n a: Toggle Axes Visibility"
-                f"\n c: Toggle camera free/follow-picked"
-                f"\n l: Toggle Lighting Mode"
-                f"\n L: Toggle Node Label Visibility"
-                f"\n v: Print picked node info in terminal"
-                f"\n BackSpace: Toggle starfield (experimental)"
-                f"\n h: Toggle this help message"
-                f"\n j/k: Near Plane Clipping Tolerance"
-                f"\n J/K: Picker Tolerance"
-                f"\n Q: Quit"
-                )
-            self.text_actors['help'].GetBoundingBox(self.renderers['foreground'], bounds)
-            text_width = bounds[1] - bounds[0] + 1  # Width in pixels
-            text_height = bounds[3] - bounds[2] + 1  # Height in pixels
-            # Calculate position for bottom-right corner with 20-pixel padding
-            x_pos = window_width - text_width - hud_padding    # Right edge minus width
-            y_pos = hud_padding  # Bottom edge (20 pixels from bottom)
-            self.text_actors['help'].SetPosition(x_pos, y_pos)
-
-        else:
-            self.text_actors['help'].SetInput("")
-
-        ############################################################################
-        # Camera and lighting info displayed in top center-right-ish
-        ############################################################################
-        camera_info = f"Camera: Follow {self.camera_follows.name}" if self.camera_follows else "Camera: Free" 
-        self.text_actors['camera'].SetInput(f"{camera_info}")
-        bounds = [0] * 4 # Get the text bounding box in display coordinates  [xmin, xmax, ymin, ymax]
-        self.text_actors['camera'].GetBoundingBox(self.renderers['foreground'], bounds)
-        text_width = bounds[1] - bounds[0] + 1  # Width in pixels
-        text_height = bounds[3] - bounds[2] + 1  # Height in pixels
-        # Calculate position for bottom-right corner with padding
-        x_pos = (window_width - text_width - hud_padding)/1.3  # 2/3ish the way over on right side
-        y_pos = window_height - text_height - hud_padding  # Top edge (20 pixels from bottom)
-        self.text_actors['camera'].SetPosition(x_pos, y_pos)
-
-        lighting_info = f"Lighting: {self.lighting_mode}" 
-        self.text_actors['lighting'].SetInput(f"{lighting_info}")
-        self.text_actors['lighting'].SetPosition(x_pos, y_pos-text_height)
-
-        ############################################################################
-        # Version
-        ############################################################################
-        bounds = [0] * 4 # Get the text bounding box in display coordinates  [xmin, xmax, ymin, ymax]
-        self.text_actors['picked'].GetBoundingBox(self.renderers['foreground'], bounds)
-        text_height = bounds[3] - bounds[2] + 1  # Height in pixels
-        self.text_actors['version'].GetTextProperty().SetColor(0.7, 0.7, 0.7)
-        self.text_actors['version'].SetPosition(hud_padding, text_height + hud_padding)
-        self.text_actors['version'].SetInput(f"VIRGO alpha version")
 
     def focus_camera_on(self, actor):
         """
@@ -597,7 +523,7 @@ class VirgoControlCenter:
         """
         Return the picked vtkActor if any, using vtkAssemblyPath inspection.
         Note this currently uses the more computationally intensive
-          self.picker = vtk.vtkCellPicker()
+          self.picker = vtkCellPicker()
         But this was the only picker approach I could get to work with the
         vtkAssembly configuration we are using.
         """
@@ -649,7 +575,7 @@ class VirgoControlCenter:
             #self.renderer.RemoveAllLights()
             if self.sun_light and self.sun_light in all_lights:
                 self.renderers['foreground'].RemoveLight(self.sun_light)
-            headlight = vtk.vtkLight()
+            headlight = vtkLight()
             headlight.SetLightTypeToHeadlight()
             headlight.SetIntensity(1.0)
             self.renderers['foreground'].AddLight(headlight)
@@ -727,10 +653,10 @@ class VirgoControlCenter:
             msg = (f"ERROR: Cannot save frame to {filename},"
                    " self.render_window is None!")
             raise RuntimeError (msg)
-        w2i = vtk.vtkWindowToImageFilter()
+        w2i = vtkWindowToImageFilter()
         w2i.SetInput(self.render_window)
         w2i.Update()
-        writer = vtk.vtkPNGWriter()
+        writer = vtkPNGWriter()
         writer.SetFileName(filename)
         writer.SetInputConnection(w2i.GetOutputPort())
         writer.Write()
@@ -748,7 +674,7 @@ class VirgoControlCenter:
 
         #node = self.nodes['satellite']
         #label = node.get_label('name')
-        #mat = vtk.vtkMatrix4x4()
+        #mat = vtkMatrix4x4()
         #node.assembly.GetMatrix(mat)  # fill mat with the assembly's world matrix
         #world = [0.0, 0.0, 0.0, 0.0]
         #local_offset = [node.get_local_position()[0], node.get_local_position()[1],node.get_local_position()[2], 1.0]
@@ -809,8 +735,7 @@ class VirgoControlCenter:
             if self.verbosity > 1:
                 self.camera_report()
         if key == "space":
-            self.mode = 'PLAYING' if self.mode == 'PAUSED' else 'PAUSED'
-            self.text_actors['mode'].SetInput(self.mode)
+            self.handle_pause_button()
         if key == "Left" or key =='comma':
             self.mode = 'PAUSED'
             self.decrement_time()
@@ -838,6 +763,21 @@ class VirgoControlCenter:
             self.playback_speed = self.available_speeds[0]
         # Adjust self.dt so the scene runs based on new speed
         self.dt = self.default_dt * self.playback_speed
+
+    def handle_pause_button(self):
+        """
+        If paused, go to playing. If playing, go to paused.
+        If paused and at the end of the sim, reset world time
+        to the world time start
+        """
+        if self.mode == 'PAUSED':
+            self.mode = 'PLAYING'
+            if math.isclose(self.world_time, self.max_sim_time):
+                self.world_time = self.world_time_start
+        else:
+            self.mode = 'PAUSED'
+        # Update the text actor that displays mode
+        self.text_actors['mode'].SetInput(self.mode)
 
     def decrement_time(self):
         """
@@ -905,7 +845,7 @@ class VirgoControlCenter:
 
         TODO: The hardcoded values should probably be either removed entirely
         and replaced with whatever 'r' keypress is doing via the default
-        behavior of vtk.vtkInteractorStyleTrackballCamera, or a better approach
+        behavior of vtkInteractorStyleTrackballCamera, or a better approach
         which places the camera automatically based on what's in the scene, or
         based on camera init information read from the YAML file
 
@@ -1097,19 +1037,19 @@ class VirgoControlCenter:
         TODO: This should probably live in another class and we just
         retrieve it here
         """
-        texture_reader = vtk.vtkJPEGReader()
+        texture_reader = vtkJPEGReader()
         texture_reader.SetFileName(
             os.path.join(thisFileDir,"images/space/starmap_2020_8k.jpg"))
         texture_reader.Update()
         
-        texture = vtk.vtkTexture()
+        texture = vtkTexture()
         texture.SetInputConnection(texture_reader.GetOutputPort())
         texture.MipmapOn()
         texture.InterpolateOn()
         texture.RepeatOn()
         
         # Create the skybox
-        skybox = vtk.vtkSkybox()
+        skybox = vtkSkybox()
         skybox.SetTexture(texture)
         skybox.SetProjectionToSphere()  # For equirectangular maps
         skybox.SetVisibility(False)     # Off by default
@@ -1131,9 +1071,9 @@ class VirgoControlCenter:
 
         # Configure the 'realisitc' lighting mode with shadow pass
         # by building up self.camera_pass which the renderer will use
-        shadows = vtk.vtkShadowMapPass()
-        seq = vtk.vtkSequencePass()
-        passes = vtk.vtkRenderPassCollection()
+        shadows = vtkShadowMapPass()
+        seq = vtkSequencePass()
+        passes = vtkRenderPassCollection()
         # Baker pass provides inter-actor shadows but there's a major
         # bug that prevents us from using it. See details here:
         #bp = shadows.GetShadowMapBakerPass()
@@ -1144,10 +1084,10 @@ class VirgoControlCenter:
         # Add overlay and translucent passes, this is needed for text_actors
         # and actors with less than 1.0 opacity to render when more realisitic
         # lighting is on
-        passes.AddItem(vtk.vtkTranslucentPass())
-        passes.AddItem(vtk.vtkOverlayPass())
+        passes.AddItem(vtkTranslucentPass())
+        passes.AddItem(vtkOverlayPass())
         seq.SetPasses(passes)
-        self.camera_pass = vtk.vtkCameraPass()
+        self.camera_pass = vtkCameraPass()
         self.camera_pass.SetDelegatePass(seq)
 
         self.set_lighting_mode(self.lighting_mode)
@@ -1173,7 +1113,7 @@ class VirgoControlCenter:
                 raise RuntimeError (msg)
 
         # Create the light coming from the sun 
-        self.sun_light = vtk.vtkLight()
+        self.sun_light = vtkLight()
         self.sun_light.SetLightTypeToSceneLight()
         self.sun_light.SetPositional(False)
         self.sun_light.SetDirectionAngle(0, 0)  # placeholder, we’ll set manually below
@@ -1185,16 +1125,16 @@ class VirgoControlCenter:
         # Create the sun actor - this sphere is not a normal actor
         # but will be placed at a fixed distance relative to the camera
         # to make it appear to be very far away
-        sun_sphere = vtk.vtkSphereSource()
+        sun_sphere = vtkSphereSource()
         sun_size = 6.957e8  # Radius in meters
         sun_sphere.SetRadius(sun_size)
         sun_sphere.SetThetaResolution(32)
         sun_sphere.SetPhiResolution(32)
     
-        sun_mapper = vtk.vtkPolyDataMapper()
+        sun_mapper = vtkPolyDataMapper()
         sun_mapper.SetInputConnection(sun_sphere.GetOutputPort())
     
-        self.sun_actor = vtk.vtkActor()
+        self.sun_actor = vtkActor()
         self.sun_actor.SetMapper(sun_mapper)
         self.sun_actor.GetProperty().SetColor(1.0, 1.0, 0.0) # Yellow
         self.sun_actor.GetProperty().SetLighting(False)  # always bright (emissive)
@@ -1247,27 +1187,26 @@ class VirgoScene:
         if 'splash' in self.scene:
             self.splash = self.scene['splash']
 
-        self.render_window = vtk.vtkRenderWindow()
+        self.render_window = vtkRenderWindow()
         self.renderers = {}
         # We have multiple renderers to help overcome single precision depth buffer issues.
         # Each renderer operates in it's own layer composited on top of the last,
         # background first ending with foreground
-        self.renderers['skybox'] = vtk.vtkRenderer()  # For actors 1e-10 -> 1e17
+        self.renderers['skybox'] = vtkRenderer()  # For actors 1e-10 -> 1e17
         self.renderers['skybox'].SetLayer(0)
         self.renderers['skybox'].InteractiveOff()
         self.renderers['skybox'].SetBackground(self.background_color)
-        self.renderers['background'] = vtk.vtkRenderer()  # For actors 1e-10 -> 1e17
+        self.renderers['background'] = vtkRenderer()  # For actors 1e-10 -> 1e17
         self.renderers['background'].SetLayer(1)
         self.renderers['background'].InteractiveOff()
         self.renderers['background'].SetBackground(self.background_color)
         # TODO: probably want a 'midground' renderer      # For actors 1e-4 -> 1e11
-        self.renderers['foreground'] = vtk.vtkRenderer()  # For actors 1e-2 -> 1e5
+        self.renderers['foreground'] = vtkRenderer()  # For actors 1e-2 -> 1e5
         self.renderers['foreground'].SetLayer(2)
         self.renderers['foreground'].SetBackground(self.background_color)
         self.render_window.SetNumberOfLayers(len(self.renderers.keys()))
-        self.interactor = vtk.vtkRenderWindowInteractor()
+        self.interactor = vtkRenderWindowInteractor()
     
-        # Set better camera interaction
         self.interactor_style = VirgoInteractorStyle(renderers=self.renderers)
         self.controller = VirgoControlCenter(self.renderers, self.render_window,
                                              self.interactor, self.scene)
@@ -1280,6 +1219,7 @@ class VirgoScene:
         2. Configuring the controller, renderer, and interactor
         """
         self.initialize_nodes()   # Load all actors from the self.scene info
+        # Initialize the heads-up-display
 
         self.render_window.SetSize(self.window_width, self.window_height)
         self.render_window.SetWindowName(self.description)
@@ -1299,6 +1239,7 @@ class VirgoScene:
 
         self.controller.register_callbacks()
         self.controller.initialize()
+        self.controller.set_hud()
         self.initialized = True
 
     def add_node(self, node, parent_name=None):
@@ -1402,48 +1343,57 @@ class VirgoScene:
         frame = self.create_actor(actor_name=frame_name, actor_scene_dict=frame_scene_dict)
         return frame
 
-    def create_node(self, actor, actor_scene_dict=None, _class=VirgoSceneNode):
+    def create_node(self, actor, actor_scene_dict=None, _class=None):
         """
         Creates a VirgoSceneNode associated with actor from the information
         in actor_scene_dict. 
 
         Args:
           _class (cls): Class to instantiate, must be or derive from VirgoSceneNode
+                        or be None which means use VirgoSceneNode
 
         Returns: Tuple of (VirgoSceneNode, parent_name [str])
         """
+        # Make sure the given class derives from VirgoSceneNode
+        if _class == None:
+          _class = VirgoSceneNode
+        elif not issubclass(_class, VirgoSceneNode):
+          msg = (f"ERROR: Improper extension detected: {_class} must derive from" 
+                 f"VirgoSceneNode")
+          raise RuntimeError (msg)
+
         name = None
         if actor:
-            name = actor.name
+          name = actor.name
         node = _class(name=name, actor=actor)
         node.set_highlight_color(self.highlight_color)
         parent_name=None
         if 'parent' in actor_scene_dict and actor_scene_dict['parent'] != None:
-            parent_name=actor_scene_dict['parent']
+          parent_name=actor_scene_dict['parent']
 
         # If labels: are provided for the node/actor, 
         if 'labels' in actor_scene_dict:
-            labels = actor_scene_dict['labels']
-            for label in labels:
-                position = [0.0, 0.0, 0.0]
-                ypr = [0.0, 0.0, 0.0]
-                scale = 0.3
-                color = [1.0, 1.0, 1.0]
-                if 'text' in labels[label]:
-                  text = labels[label]['text']
-                if 'pos' in labels[label]:
-                  position = labels[label]['pos']
-                if 'scale' in labels[label]:
-                  scale = labels[label]['scale']
-                if 'ypr' in labels[label]:
-                  ypr = labels[label]['ypr']
-                if 'color' in labels[label]:
-                  color = labels[label]['color']
-                # Add the label to the node
-                node.add_label(name=label, text=text, position=position, ypr=ypr, scale=scale, color=color)
-                # Tell the label to follow the camera so it always faces it,
-                # THIS ISNT WORKING RIGHT NOW I THINK BECAUSE OF THE ASSEMBLY SYSTEM
-                #node.get_label(label).get_follower().SetCamera(self.renderer.GetActiveCamera())
+          labels = actor_scene_dict['labels']
+          for label in labels:
+            position = [0.0, 0.0, 0.0]
+            ypr = [0.0, 0.0, 0.0]
+            scale = 0.3
+            color = [1.0, 1.0, 1.0]
+            if 'text' in labels[label]:
+              text = labels[label]['text']
+            if 'pos' in labels[label]:
+              position = labels[label]['pos']
+            if 'scale' in labels[label]:
+              scale = labels[label]['scale']
+            if 'ypr' in labels[label]:
+              ypr = labels[label]['ypr']
+            if 'color' in labels[label]:
+              color = labels[label]['color']
+            # Add the label to the node
+            node.add_label(name=label, text=text, position=position, ypr=ypr, scale=scale, color=color)
+            # Tell the label to follow the camera so it always faces it,
+            # THIS ISNT WORKING RIGHT NOW I THINK BECAUSE OF THE ASSEMBLY SYSTEM
+            #node.get_label(label).get_follower().SetCamera(self.renderer.GetActiveCamera())
 
         return node, parent_name
 
@@ -1467,56 +1417,78 @@ class VirgoScene:
             trail_actor = node.create_trail(color=color, thickness=thickness, opacity=opacity)
         return trail_actor
 
-    def initialize_nodes(self):
+    def initialize_nodes(self, fncc=VirgoSceneNode, ancc=VirgoSceneNode,
+                         vncc=VirgoSceneNodeVector):
         """
         Create the actors and VirgoSceneNodes associated with entries in
         the scene dictionary and initialize their configurable parameters. Then
         add them all to self.nodes and pass them into self.controller so that
         they can be accessed at runtime.
+
+        Params:
+
+        fncc: "Frame Node Custom Class". A python class inheriting from
+              SceneNode to instantiate instead of the default. This is used
+              for extending SceneNode functionality.
+
+        ancc: "Actor Node Custom Class". A python class inheriting from
+              SceneNode to instantiate instead of the default. This is used
+              for extending SceneNode functionality.
+
+        vncc: "Vector Node Custom Class". A python class inheriting from
+              SceneNode to instantiate instead of the default. This is used
+              for extending SceneNode functionality.
         """
         nodes_to_add = []
         frames = {}
         if 'frames' in self.scene:
-            for f in self.scene['frames']:
-                node, parent_name = self.create_node(actor=None, actor_scene_dict=self.scene['frames'][f])
-                node.set_name(f)
-                node.set_static=True
-                # TODO I'm not convinced using 'scale' to represent axes size is
-                # the best idea as it may cause confusion to the user - after
-                # all frames dont have meshes...
-                axes_scale = 1.0
-                if 'scale' in self.scene['frames'][f]:
-                    axes_scale = self.scene['frames'][f]['scale']
-                node.set_axes_length(axes_scale,axes_scale,axes_scale)
-                node.set_axes_pickable_on()
-                node.set_pose(pos=self.scene['frames'][f]['pos'], ypr=self.scene['frames'][f]['ypr'])
-                nodes_to_add.append( (node, parent_name) )
+          for f in self.scene['frames']:
+            node, parent_name = self.create_node(actor=None,
+                                actor_scene_dict=self.scene['frames'][f],
+                                _class=fncc)
+            node.set_name(f)
+            # TODO: I don't think frames should be static, need to test if we can drive them
+            # as making them static is a major limitation that I don't think is needed -Jordan
+            node.set_static=True
+            # TODO I'm not convinced using 'scale' to represent axes size is
+            # the best idea as it may cause confusion to the user - after
+            # all frames dont have meshes...
+            axes_scale = 1.0
+            if 'scale' in self.scene['frames'][f]:
+                axes_scale = self.scene['frames'][f]['scale']
+            node.set_axes_length(axes_scale,axes_scale,axes_scale)
+            node.set_axes_pickable_on()
+            node.set_pose(pos=self.scene['frames'][f]['pos'], ypr=self.scene['frames'][f]['ypr'])
+            nodes_to_add.append( (node, parent_name) )
 
         actors = {}
         trail_actors = {}
         if 'actors' in self.scene:
-            for a in self.scene['actors']:
-                actors[a] = self.create_actor(actor_name=a, actor_scene_dict=self.scene['actors'][a])
-                actors[a].initialize()
+          for a in self.scene['actors']:
+            actors[a] = self.create_actor(actor_name=a, actor_scene_dict=self.scene['actors'][a])
+            actors[a].initialize()
     
-                node, parent_name = self.create_node(actor=actors[a], actor_scene_dict=self.scene['actors'][a])
-                nodes_to_add.append( (node, parent_name) )
-                trail_actor = self.create_trail(node, actor_scene_dict=self.scene['actors'][a])
-                if trail_actor:
-                    trail_actors[a] = trail_actor
+            node, parent_name = self.create_node(actor=actors[a],
+                                                 actor_scene_dict=self.scene['actors'][a],
+                                                 _class=ancc)
+            nodes_to_add.append( (node, parent_name) )
+            trail_actor = self.create_trail(node, actor_scene_dict=self.scene['actors'][a])
+            if trail_actor:
+                trail_actors[a] = trail_actor
 
         vectors = {}
         if 'vectors' in self.scene:
-            for v in self.scene['vectors']:
-                vectors[v] = self.create_vector(vector_name=v, vector_scene_dict=self.scene['vectors'][v],)
-                vectors[v].initialize()
-                node, parent_name = self.create_node(actor=vectors[v], actor_scene_dict=self.scene['vectors'][v],
-                                                     _class=VirgoSceneNodeVector)
-                # A vector is a special VIRGO_PREFAB:arrow actor that cannot specify rotations
-                if node.data_source._rotations is not None:
-                    msg = (f"ERROR: vector {v} should not specify rotations as they are computed automatically")
-                    raise RuntimeError (msg)
-                nodes_to_add.append( (node, parent_name) )
+          for v in self.scene['vectors']:
+            vectors[v] = self.create_vector(vector_name=v, vector_scene_dict=self.scene['vectors'][v])
+            vectors[v].initialize()
+            node, parent_name = self.create_node(actor=vectors[v],
+                                                 actor_scene_dict=self.scene['vectors'][v],
+                                                 _class=vncc)
+            # A vector is a special VIRGO_PREFAB:arrow actor that cannot specify rotations
+            if node.data_source._rotations is not None:
+                msg = (f"ERROR: vector {v} should not specify rotations as they are computed automatically")
+                raise RuntimeError (msg)
+            nodes_to_add.append( (node, parent_name) )
 
         self.populate_nodes(nodes_to_add)
 
@@ -1615,19 +1587,18 @@ class VirgoScene:
         while not finished:
           percent_complete = self.controller.world_time / stop_time * 100.0
           #import pdb; pdb.set_trace()
-          sys.stdout.write(f'\rGenerating frames: {percent_complete:8.2f}%')
+          sys.stdout.write(f'\rGenerating frames in {tmp_dir}: {percent_complete:8.2f}%')
           sys.stdout.flush()  # Ensure it updates immediately
           self.controller.update_scene()
-          self.render_window.Render()
+          #self.render_window.Render()  # update_scene does this already
           filename = os.path.join(tmp_dir,
                                 f"frame_{frame_num:07d}.png")
           self.controller.save_frame(filename=filename)
           frame_num += 1
           if math.isclose(self.controller.world_time, stop_time):
-          #if math.isclose(self.controller.world_time, 3.0):
             finished = True
         percent_complete=100.0
-        sys.stdout.write(f'\rGenerating frames: {percent_complete:8.2f}%\n')
+        sys.stdout.write(f'\rGenerating frames in {tmp_dir}: {percent_complete:8.2f}%\n')
 
         # Render an mp4 video file
         try:
@@ -1636,7 +1607,6 @@ class VirgoScene:
           msg = (f"ERROR: imageio not found in virtual environment, cannot render"
                  f" images in {tmp_dir} to video file {self.video_filename}.")
           print(msg)
-          self.tear_down()
           raise(e)
         print(f"Rendering {self.video_filename} ...")
         frames = [imageio.imread(f"{tmp_dir}/frame_{i:07d}.png")
@@ -1646,6 +1616,29 @@ class VirgoScene:
 
 
     def tear_down(self):
-        for renderer in self.renderers:
-            self.renderers[renderer].RemoveAllObservers()
-        self.interactor.RemoveAllObservers()
+        # TODO: do we need to RemoveAllObservers() for the self.camera too?
+        #self.cameras['foreground'].AddObserver("ModifiedEvent", self.sync_cameras)
+        # TODO: do we need to destroy the timer? with self.interactor.DestroyTimer(self.timer_id)
+        #self.timer_id = self.interactor.CreateRepeatingTimer(self.callback_rate)
+
+        # David Gobbi from VTK team recommends "call
+        # interactor.DestroyTimer(timerId) for every timer that you create
+        # before the interactor goes out of scope and destructs"
+        if self.controller.timer_id:
+            self.interactor.DestroyTimer(self.controller.timer_id)
+        #for camera in self.controller.cameras:
+        #    self.controller.cameras[camera].RemoveAllObservers()
+
+        #sys.stderr.write(f'\nDEBUG: Removing all observers for interactor...')
+        #self.interactor.RemoveAllObservers()
+        #sys.stderr.write(f'Done.')
+        #for renderer in self.renderers:
+        #    sys.stderr.write(f'\nDEBUG: Removing all observers for renderer {renderer}...')
+        #    self.renderers[renderer].RemoveAllObservers()
+        #    sys.stderr.write(f'Done.')
+
+        ## Mark for deletion
+        #del self.interactor
+        #self.interactor = None
+        #for renderer in self.renderers:
+        #    del renderer

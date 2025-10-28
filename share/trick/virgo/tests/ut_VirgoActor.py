@@ -17,21 +17,14 @@ def suite():
     suites.append(unittest.TestLoader().loadTestsFromTestCase(VirgoActorTestCase))
     return (suites)
 
-    import time
-
-
-
 class VirgoActorTestCase(VisualizableTestCase):
 
     def setUp(self):
-        VisualizableTestCase().setUp()
+        pass
 
     def tearDown(self):
-        self.vis()
-        super().tearDown()
         self.instance = None
         del self.instance
-
 
     def test_incomplete_init(self):
         """
@@ -50,12 +43,10 @@ class VirgoActorTestCase(VisualizableTestCase):
         self.instance = VirgoActor(mesh=os.path.join(meshes_dir, 'teapot.obj'),
                                                offset_ypr=[45, 0, 0])
         self.instance.initialize()
-        #import pdb; pdb.set_trace()
         self.assertEqual(self.instance.name, 'No Name')
         self.assertEqual(self.instance.offset_ypr, [45, 0, 0])
         for i, (a, b) in enumerate(zip(self.instance.GetOrientation(), [45.0, 0.0, 0.0])):
             self.assertAlmostEqual(a, b)
-        #self.visualize = True
 
     def test_init_with_pos_offset(self):
         """
@@ -70,9 +61,7 @@ class VirgoActorTestCase(VisualizableTestCase):
         self.assertEqual(self.instance.offset_pos, [1, 0, 0])
         for i, (a, b) in enumerate(zip(self.instance.GetPosition(), [1.0, 0.0, 0.0])):
             self.assertAlmostEqual(a, b)
-        #self.visualize = True
-        #self.show_grid = True
-        #self.show_origin = True
+        #self.vis(actors=self.instance, show_origin=1, show_grid=0)
 
     def test_init_with_pos_and_ypr_offset(self):
         """
@@ -91,31 +80,23 @@ class VirgoActorTestCase(VisualizableTestCase):
             self.assertAlmostEqual(a, b)
         for i, (a, b) in enumerate(zip(self.instance.GetOrientation(), [-45.0, 0.0, 0.0])):
             self.assertAlmostEqual(a, b)
-        #self.visualize = True
-        #self.show_grid = True
-        #self.show_origin = True
+        #self.vis(actors=self.instance, show_origin=1, show_grid=1)
 
     def test_init_prefab_moon(self):
         """
         Test the VIRGO_PREFAB:moon option
         """
         self.instance = VirgoActor(mesh="VIRGO_PREFAB:moon8k")
-        self.set_origin_axes_length(3e6, 3e6, 3e6)  # Size of axes (x, y, z lengths)
+        #self.vis(actors=self.instance, show_origin=1, show_grid=1, oal=[3e6, 3e6, 3e6])
         # TODO assertions go here!
-        #self.visualize = True
-        #self.show_origin = True
-        #self.show_grid = True
 
     def test_init_prefab_earth(self):
         """
         Test the VIRGO_PREFAB:earth option
         """
         self.instance = VirgoActor(mesh="VIRGO_PREFAB:earth")
-        self.set_origin_axes_length(1e7, 1e7, 1e7)  # Size of axes (x, y, z lengths)
         # TODO assertions go here!
-        #self.visualize = True
-        #self.show_origin = True
-        #self.show_grid = True
+        #self.vis(actors=self.instance, show_origin=1, show_grid=1, oal=[1e7, 1e7, 1e7])
 
     def test_init_prefab_arrow(self):
         """
@@ -123,5 +104,4 @@ class VirgoActorTestCase(VisualizableTestCase):
         """
         self.instance = VirgoActor(mesh="VIRGO_PREFAB:arrow")
         # TODO assertions go here!
-        #self.visualize = True
-        #self.show_origin = True
+        #self.vis(actors=self.instance, show_origin=1, show_grid=1)

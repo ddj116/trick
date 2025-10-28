@@ -2,8 +2,29 @@
 import os, sys, inspect, math
 thisFileDir = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0)))
 
-import vtk
-class VirgoActor(vtk.vtkActor):
+from vtkmodules.vtkRenderingCore import (
+  vtkActor,
+  vtkAssembly,
+  vtkPolyDataMapper,
+  vtkTexture,
+)
+from vtkmodules.vtkFiltersSources import (
+  vtkCubeSource,
+  vtkSphereSource,
+  vtkCylinderSource,
+  vtkConeSource,
+  vtkArrowSource,
+  vtkTexturedSphereSource,
+)
+from vtkmodules.vtkIOGeometry import (
+  vtkOBJReader,
+  vtkSTLReader,
+)
+from vtkmodules.vtkIOImage import (
+  vtkJPEGReader,
+  vtkPNGReader,
+)
+class VirgoActor(vtkActor):
     """
     Wrapper around VTK actor to facilitate the Trick Logged data
     and other capabilities
@@ -113,11 +134,11 @@ class VirgoActor(vtk.vtkActor):
         mapper with the configuration of geometry given
         """
         # TODO: this is quick and dirty, need a VIRGO_PREFAB management class that VirgoActor uses
-        mapper = vtk.vtkPolyDataMapper()
+        mapper = vtkPolyDataMapper()
         texture = None
         if 'VIRGO_PREFAB:sphere300' in str(mesh):
             # Create a sphere source
-            self.source = vtk.vtkSphereSource()
+            self.source = vtkSphereSource()
             self.source.SetRadius(1.0)  # Set radius of the sphere
             self.source.SetThetaResolution(300)  # Number of divisions in theta (longitude)
             self.source.SetPhiResolution(300)  # Number of divisions in phi (latitude)
@@ -125,42 +146,65 @@ class VirgoActor(vtk.vtkActor):
             mapper.SetInputConnection(self.source.GetOutputPort())
         elif 'VIRGO_PREFAB:sphere' in str(mesh) or 'VIRGO_PREFAB:sphere100' in str(mesh):
             # Create a sphere source
-            self.source = vtk.vtkSphereSource()
+            self.source = vtkSphereSource()
             self.source.SetRadius(1.0)  # Set radius of the sphere
             self.source.SetThetaResolution(100)  # Number of divisions in theta (longitude)
             self.source.SetPhiResolution(100)  # Number of divisions in phi (latitude)
             # Create a mapper to map the sphere's geometry to graphics primitives
             mapper.SetInputConnection(self.source.GetOutputPort())
-        elif 'VIRGO_PREFAB:earth' in str(mesh):
+        # High fidelity earth (for simulations very close to earth surface)
+        elif 'VIRGO_PREFAB:earth-3000' in str(mesh):
+            equatorial = 6378137.0
+            polar = 6356752.0
             # Create a sphere source
-            self.source = vtk.vtkTexturedSphereSource()
-            self.source.SetRadius(6371000.0)     # Set radius of earth
-            self.source.SetThetaResolution(300)  # Number of divisions in theta (longitude)
-            self.source.SetPhiResolution(300)  # Number of divisions in phi (latitude)
+            self.source = vtkTexturedSphereSource()
+            self.source.SetRadius(equatorial)     # Equatorial radius
+            self.source.SetThetaResolution(3000)  # Number of divisions in theta (longitude)
+            self.source.SetPhiResolution(3000)  # Number of divisions in phi (latitude)
             # Read Earth texture image
-            reader = vtk.vtkJPEGReader()
-            reader.SetFileName(os.path.join(thisFileDir, 'images/earth/2k_earth_daymap.jpg'))
-            texture = vtk.vtkTexture()
+            #reader = vtkJPEGReader()
+            reader = vtkPNGReader()
+            reader.SetFileName(os.path.join(thisFileDir, 'images/earth/earth_5400x2700.png'))
+            texture = vtkTexture()
             texture.SetInputConnection(reader.GetOutputPort())
             texture.InterpolateOn()
             # Create a mapper to map the sphere's geometry to graphics primitives
             mapper.SetInputConnection(self.source.GetOutputPort())
             # Scale the sphere to make it an oblate spheroid
             # Earth radii: equatorial ~6378 km, polar ~6357 km
-            equatorial = 6378137
-            polar = 6356752
+            scale_z = polar / equatorial
+            self.SetScale(1.0, 1.0, scale_z)  # squash along Z
+        # Medium fidelity earth (for simulations not too close to the surface)
+        elif 'VIRGO_PREFAB:earth' in str(mesh) or 'VIRGO_PREFAB:earth-300' in str(mesh):
+            equatorial = 6378137.0
+            polar = 6356752.0
+            # Create a sphere source
+            self.source = vtkTexturedSphereSource()
+            self.source.SetRadius(equatorial)     # Equatorial radius
+            self.source.SetThetaResolution(300)  # Number of divisions in theta (longitude)
+            self.source.SetPhiResolution(300)  # Number of divisions in phi (latitude)
+            # Read Earth texture image
+            reader = vtkJPEGReader()
+            reader.SetFileName(os.path.join(thisFileDir, 'images/earth/2k_earth_daymap.jpg'))
+            texture = vtkTexture()
+            texture.SetInputConnection(reader.GetOutputPort())
+            texture.InterpolateOn()
+            # Create a mapper to map the sphere's geometry to graphics primitives
+            mapper.SetInputConnection(self.source.GetOutputPort())
+            # Scale the sphere to make it an oblate spheroid
+            # Earth radii: equatorial ~6378 km, polar ~6357 km
             scale_z = polar / equatorial
             self.SetScale(1.0, 1.0, scale_z)  # squash along Z
         elif 'VIRGO_PREFAB:moon8k' in str(mesh) :
             # Create a sphere source
-            self.source = vtk.vtkTexturedSphereSource()
+            self.source = vtkTexturedSphereSource()
             self.source.SetRadius(1738100.0)     # Set radius of moon
             self.source.SetThetaResolution(300)  # Number of divisions in theta (longitude)
             self.source.SetPhiResolution(300)  # Number of divisions in phi (latitude)
             # Read Moon texture image
-            reader = vtk.vtkJPEGReader()
+            reader = vtkJPEGReader()
             reader.SetFileName(os.path.join(thisFileDir, 'images/moon/lroc_color_poles_8k.jpg'))
-            texture = vtk.vtkTexture()
+            texture = vtkTexture()
             texture.SetInputConnection(reader.GetOutputPort())
             texture.InterpolateOn()
             # Create a mapper to map the sphere's geometry to graphics primitives
@@ -172,14 +216,14 @@ class VirgoActor(vtk.vtkActor):
             self.SetScale(1.0, 1.0, scale_z)
         elif 'VIRGO_PREFAB:moon' in str(mesh) or 'VIRGO_PREFAB:moon4k' in str(mesh) :
             # Create a sphere source
-            self.source = vtk.vtkTexturedSphereSource()
+            self.source = vtkTexturedSphereSource()
             self.source.SetRadius(1738100.0)     # Set radius of moon
             self.source.SetThetaResolution(300)  # Number of divisions in theta (longitude)
             self.source.SetPhiResolution(300)  # Number of divisions in phi (latitude)
             # Read Moon texture image
-            reader = vtk.vtkJPEGReader()
+            reader = vtkJPEGReader()
             reader.SetFileName(os.path.join(thisFileDir, 'images/moon/lroc_color_poles_4k.jpg'))
-            texture = vtk.vtkTexture()
+            texture = vtkTexture()
             texture.SetInputConnection(reader.GetOutputPort())
             texture.InterpolateOn()
             # Create a mapper to map the sphere's geometry to graphics primitives
@@ -190,14 +234,14 @@ class VirgoActor(vtk.vtkActor):
             scale_z = polar / equatorial   # ~0.99879
             self.SetScale(1.0, 1.0, scale_z)
         elif 'VIRGO_PREFAB:cube' in str(mesh):
-            self.source = vtk.vtkCubeSource()
+            self.source = vtkCubeSource()
             self.source.SetXLength(1.0)
             self.source.SetYLength(1.0)
             self.source.SetZLength(1.0)
             # Create a mapper to map the cube's geometry to graphics primitives
             mapper.SetInputConnection(self.source.GetOutputPort())
         elif 'VIRGO_PREFAB:cylinder' in str(mesh):
-            self.source = vtk.vtkCylinderSource()
+            self.source = vtkCylinderSource()
             self.source.SetHeight(1.0)         # Set height to 3 units
             self.source.SetRadius(0.5)         # Set radius to 1 unit
             self.source.SetCenter(0.0, 0.0, 0.0) # 
@@ -206,7 +250,7 @@ class VirgoActor(vtk.vtkActor):
             # Create a mapper to map the cube's geometry to graphics primitives
             mapper.SetInputConnection(self.source.GetOutputPort())
         elif'VIRGO_PREFAB:cone-32' in str(mesh):
-            self.source = vtk.vtkConeSource()
+            self.source = vtkConeSource()
             height = 1.0
             self.source.SetHeight(height)
             self.source.SetRadius(0.5)
@@ -215,7 +259,7 @@ class VirgoActor(vtk.vtkActor):
             self.source.SetCenter(height/2, 0.0, 0.0)  # tip at (0,0,0)
             mapper.SetInputConnection(self.source.GetOutputPort())
         elif 'VIRGO_PREFAB:cone' in str(mesh) or  'VIRGO_PREFAB:cone-16' in str(mesh):
-            self.source = vtk.vtkConeSource()
+            self.source = vtkConeSource()
             height = 1.0
             self.source.SetHeight(height)
             self.source.SetRadius(0.5)
@@ -224,7 +268,7 @@ class VirgoActor(vtk.vtkActor):
             self.source.SetCenter(height/2, 0.0, 0.0)  # tip at (0,0,0)
             mapper.SetInputConnection(self.source.GetOutputPort())
         elif 'VIRGO_PREFAB:arrow' in str(mesh):
-            self.source = vtk.vtkArrowSource()
+            self.source = vtkArrowSource()
             self.source.SetTipLength(0.35)   # Fraction of total length
             self.source.SetTipRadius(0.2)    # Radius of the cone
             self.source.SetShaftRadius(0.03) # Radius of the cylinder
@@ -232,14 +276,14 @@ class VirgoActor(vtk.vtkActor):
             mapper.SetInputConnection(self.source.GetOutputPort())
         elif '.obj' in str(mesh):
             # Read in the geometry
-            reader = vtk.vtkOBJReader()
+            reader = vtkOBJReader()
             reader.SetFileName(mesh)
             reader.Update()
             # Create a mapper and set the reader's output
             mapper.SetInputConnection(reader.GetOutputPort())
         elif '.stl' in str(mesh):
             # Read in the geometry
-            reader = vtk.vtkSTLReader()
+            reader = vtkSTLReader()
             reader.SetFileName(mesh)
             reader.Update()
             # Create a mapper and set the reader's output

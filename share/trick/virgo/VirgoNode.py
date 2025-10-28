@@ -1,7 +1,32 @@
-import vtk
 import numpy as np
 
 from VirgoLabel import VirgoLabel
+
+from vtkmodules.vtkRenderingCore import (
+  vtkActor,
+  vtkAssembly,
+  vtkPolyDataMapper,
+)
+from vtkmodules.vtkCommonMath import (
+  vtkMatrix4x4,
+)
+from vtkmodules.vtkCommonTransforms import (
+  vtkTransform,
+)
+from vtkmodules.vtkRenderingAnnotation import (
+  vtkAxesActor,
+)
+from vtkmodules.vtkCommonCore import (
+  vtkPoints,
+)
+from vtkmodules.vtkCommonDataModel import (
+  vtkCellArray,
+  vtkPolyData,
+  vtkPolyLine,
+)
+from vtkmodules.vtkFiltersHybrid import (
+  vtkPolyDataSilhouette,
+)
 
 class VirgoSceneNode():
     """
@@ -19,7 +44,7 @@ class VirgoSceneNode():
         self.verbosity=3  # TODO make adjustable
         self.fs = 14      # font size
         self.actor = actor
-        self.assembly = vtk.vtkAssembly()     # The assembly associated with this node
+        self.assembly = vtkAssembly()     # The assembly associated with this node
         self.axes_scale = 0.5  # Default scale factor for axes
         self.axes = None
         if axes:
@@ -43,7 +68,7 @@ class VirgoSceneNode():
         # because the VTK rendering pipeline has no way to query the world state
         # information of an actor inside an assembly after it's moved, so we have
         # to store the transformation in each node to be able to get that information
-        self.local_transform = vtk.vtkTransform()
+        self.local_transform = vtkTransform()
         self.local_transform.Identity()
         self.assembly.SetUserTransform(self.local_transform)
 
@@ -87,7 +112,13 @@ class VirgoSceneNode():
         if not self.actor.GetPickable():
             return
         num_vertices = self.actor.get_num_vertices()
-        if (num_vertices == None or num_vertices > self.silhouette_vert_limit):
+        if (num_vertices == None):
+            if self.verbosity > 1:
+                print(f"Unable to determine number of vertices for actor "
+                      f"{self.actor.name}. Skipping highlight silhouette"
+                      f"Picking will result in color change of mesh only."
+                      )
+        elif (num_vertices > self.silhouette_vert_limit):
             if self.verbosity > 1:
                 print(f"Skipping highlight silhouette for {self.actor.name} as "
                       f"it has more vertices than the practical limit "
@@ -98,17 +129,17 @@ class VirgoSceneNode():
         mapper = self.actor.GetMapper()
         mapper.update()
         input_connection = mapper.GetInputConnection(0, 0)
-        self.silhouette_polydata = vtk.vtkPolyDataSilhouette()
+        self.silhouette_polydata = vtkPolyDataSilhouette()
         self.silhouette_polydata.SetEnableFeatureAngle(True)
         # TODO this SetFeatureAngle could be adjustable in the scene dict if we
         # wanted, it affects how sharp edges are highlighted
         self.silhouette_polydata.SetFeatureAngle(20.0)
         self.silhouette_polydata.SetInputConnection(input_connection)
 
-        sil_mapper = vtk.vtkPolyDataMapper()
+        sil_mapper = vtkPolyDataMapper()
         sil_mapper.SetInputConnection(self.silhouette_polydata.GetOutputPort())
 
-        self.silhouette_actor = vtk.vtkActor()
+        self.silhouette_actor = vtkActor()
         self.silhouette_actor.SetMapper(sil_mapper)
         self.silhouette_actor.GetProperty().SetColor(1.0, 1.0, 0.0)
         self.silhouette_actor.GetProperty().SetLineWidth(5)
@@ -279,10 +310,10 @@ class VirgoSceneNode():
             for i in range(4):
                 print(f"{prefix}{[matrix.GetElement(i, j) for j in range(4)]}")
             # If this part is another assembly, recurse into it
-            if isinstance(prop, vtk.vtkAssembly):
+            if isinstance(prop, vtkAssembly):
 #                print(f"{prefix}Recursing into {prop}...")
                 self.dump_assembly(prop, indent + 1)
-            elif isinstance(prop, vtk.vtkActor):
+            elif isinstance(prop, vtkActor):
                 # Optional: print some extra info about actors
                 bounds = prop.GetBounds()
                 print(f"{prefix}Bounds: {bounds}")
@@ -317,7 +348,7 @@ class VirgoSceneNode():
 
         # If dcm is given, provide it and pos in a single transform
         if dcm is not None:
-            matrix = vtk.vtkMatrix4x4()
+            matrix = vtkMatrix4x4()
             matrix.Identity()
             for i in range(3):
                 for j in range(3):
@@ -365,7 +396,7 @@ class VirgoSceneNode():
         node's assembly and return it to the calling function.
         """
         # Create axes actor
-        axes = vtk.vtkAxesActor()
+        axes = vtkAxesActor()
         
         #import pdb; pdb.set_trace()
         if self.actor:
@@ -483,16 +514,16 @@ class VirgoSceneNode():
             self.actor.GetProperty().SetOpacity(0.7)
 
     def create_trail(self, color=[1.0, 1.0, 1.0], thickness=2, opacity=1.0):
-        self._trail_points = vtk.vtkPoints()
-        self._trail_lines = vtk.vtkCellArray()
-        self._trail_polydata = vtk.vtkPolyData()
+        self._trail_points = vtkPoints()
+        self._trail_lines = vtkCellArray()
+        self._trail_polydata = vtkPolyData()
         self._trail_polydata.SetPoints(self._trail_points)
         self._trail_polydata.SetLines(self._trail_lines)
         
-        self._trail_mapper = vtk.vtkPolyDataMapper()
+        self._trail_mapper = vtkPolyDataMapper()
         self._trail_mapper.SetInputData(self._trail_polydata)
         
-        self._trail_actor = vtk.vtkActor()
+        self._trail_actor = vtkActor()
         self._trail_actor.SetMapper(self._trail_mapper)
         self._trail_actor.GetProperty().SetColor(color[0], color[1], color[2])
         self._trail_actor.GetProperty().SetLineWidth(thickness)
@@ -500,7 +531,7 @@ class VirgoSceneNode():
         self._trail_actor.PickableOff()
         
         # Maintain a polyline of visited positions
-        self._trail_polyline = vtk.vtkPolyLine()
+        self._trail_polyline = vtkPolyLine()
         self._trail_polyline.GetPointIds().SetNumberOfIds(0)  # start empty
 
         return self._trail_actor

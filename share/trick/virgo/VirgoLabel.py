@@ -1,5 +1,13 @@
-import vtk
 import re
+
+from vtkmodules.vtkRenderingCore import (
+  vtkFollower,
+  vtkPolyDataMapper,
+)
+
+from vtkmodules.vtkRenderingFreeType import (
+  vtkVectorText
+)
 
 class VirgoLabel():
     """
@@ -19,10 +27,10 @@ class VirgoLabel():
         self.original_text = str(text) # Copy of original text field upon label creation
         self.name = name    # Name of this label
         self.scale = scale  # Size in units of the text in the scene
-        self.label_text = vtk.vtkVectorText()
-        label_mapper = vtk.vtkPolyDataMapper()
+        self.label_text = vtkVectorText()
+        label_mapper = vtkPolyDataMapper()
         label_mapper.SetInputConnection(self.label_text.GetOutputPort())
-        self.label_follower = vtk.vtkFollower()
+        self.label_follower = vtkFollower()
         self.label_follower.SetMapper(label_mapper)
         self.label_follower.SetScale(self.scale, self.scale, self.scale)
         self.label_follower.PickableOff()        # Labels can't be picked
@@ -34,6 +42,7 @@ class VirgoLabel():
 
     def set_scale(self, scale):
         self.scale = scale
+        self.label_follower.SetScale(self.scale, self.scale, self.scale)
 
     def is_enabled(self):
         return self.enabled
@@ -61,6 +70,12 @@ class VirgoLabel():
         Set the position of the label (relative to it's parent)
         """
         self.label_follower.SetPosition(position)
+
+    def get_position(self):
+        """
+        Get the position of the label (relative to it's parent)
+        """
+        return(self.label_follower.GetPosition())
 
     def set_yaw_pitch_roll(self, yaw_pitch_roll):
         """
@@ -102,7 +117,8 @@ class VirgoLabel():
         using set_text()
     
         Args:
-            world_time (double): World time of the scene
+            world_time (double): World time of the scene. This is ignored if
+            this label's self.data_source == None
         """
         if not self.enabled:
             return
