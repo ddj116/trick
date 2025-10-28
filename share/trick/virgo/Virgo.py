@@ -117,7 +117,7 @@ class VirgoControlCenter:
         self.world_time = self.world_time_start = world_time 
         self.wallclock_time = time.time()  # Actual wall clock time in real life
         self.max_sim_time = 0.0            # highest sim time across all dr groups
-        self.images_dir = images_dir
+        self.images_dir = images_dir       # Where pictures go when taken
         if images_dir == None:
             self.images_dir = os.path.expanduser("~/Desktop")
         self.mode = 'PLAYING'              # 'PAUSED' or 'PLAYING'
@@ -128,8 +128,7 @@ class VirgoControlCenter:
         # One camera per renderer
         for r in self.renderers:
             self.cameras[r] = renderers[r].GetActiveCamera()
-        self.camera_follows = None  # if the camera should follow an actor, this is the one
-        # TODO this hardcoded value assummes the actor is HUGE
+        self.camera_follows = None  # If the camera should follow an actor, this is the one
         self.camera_follow_offset = None
         self.interactor = interactor
         self.scene = scene
@@ -174,8 +173,10 @@ class VirgoControlCenter:
         """
         Set up the scene by:
           * Adding all actors to the renderer
+          * Adding all renderers to the render window
           * Initializing the camera
-          * Setting up lights
+          * Setting skybox, playback speed, and other options
+          * Initialize lighting
         """
         if not os.path.exists(self.images_dir):
           try:
@@ -193,13 +194,13 @@ class VirgoControlCenter:
 
         self._determine_max_sim_time()
         self.update_nodes()
-        self.text_actors['mode'] = self.create_text_actor()
-        self.text_actors['picked'] = self.create_text_actor(pos=[10,10])
-        self.text_actors['time'] = self.create_text_actor()
-        self.text_actors['help'] = self.create_text_actor()
-        self.text_actors['camera'] = self.create_text_actor()
-        self.text_actors['lighting'] = self.create_text_actor()
-        self.text_actors['version'] = self.create_text_actor()
+        self.text_actors['mode'] = self.create_overlay_text_actor()
+        self.text_actors['picked'] = self.create_overlay_text_actor(pos=[10,10])
+        self.text_actors['time'] = self.create_overlay_text_actor()
+        self.text_actors['help'] = self.create_overlay_text_actor()
+        self.text_actors['camera'] = self.create_overlay_text_actor()
+        self.text_actors['lighting'] = self.create_overlay_text_actor()
+        self.text_actors['version'] = self.create_overlay_text_actor()
 
         # TODO these options also need to go in the verifier
         if 'start_mode' in self.scene:
@@ -282,7 +283,7 @@ class VirgoControlCenter:
     def set_trail_actors(self, trail_actors_dict):
         self.trail_actors = trail_actors_dict
 
-    def create_text_actor(self, pos=[0, 0]):
+    def create_overlay_text_actor(self, pos=[0, 0]):
         text = vtk.vtkTextActor()
         text.GetTextProperty().SetFontFamilyToCourier()
         text.GetTextProperty().SetFontSize(self.fs)
@@ -292,7 +293,10 @@ class VirgoControlCenter:
 
     def update_nodes(self):
         '''
-        Move actors into position based on world time compared to data
+        Call update() on all nodes in the scene
+
+        Moves nodes/actors into their positions/orientiations associated
+        with world_time
         '''
         for n in self.nodes:
             self.nodes[n].update(self.world_time)
@@ -305,16 +309,25 @@ class VirgoControlCenter:
             self.nodes[n].reset_trail()
 
     def update_scene(self):
-
+        """
+        The main scene & node update & play/pause control loop
+        swiftly followed by a window Render()
+        """
         if self.mode == 'PLAYING':
+          if math.isclose(self.world_time, self.world_time_start):
+             self.reset_trails()
           if self.world_time <= self.max_sim_time:
             self.world_time += self.dt
             self.update_nodes()
             if self.camera_follows:
-                self.camera_follow(self.camera_follows)
+              self.camera_follow(self.camera_follows)
           else:
-             self.world_time = self.world_time_start
-             self.reset_trails()
+             # TODO need verifier for end_mode
+             if 'end_mode' in self.scene and self.scene['end_mode'] == 'PAUSED':
+               self.mode = 'PAUSED'
+               self.world_time = self.max_sim_time
+             else:
+               self.world_time = self.world_time_start
 
         self.position_sun_light()
         self.position_sun_actor(None, None)
@@ -809,8 +822,7 @@ class VirgoControlCenter:
             if self.verbosity > 1:
                 self.camera_report()
         if key == "space":
-            self.mode = 'PLAYING' if self.mode == 'PAUSED' else 'PAUSED'
-            self.text_actors['mode'].SetInput(self.mode)
+            self.handle_pause_button()
         if key == "Left" or key =='comma':
             self.mode = 'PAUSED'
             self.decrement_time()
@@ -838,6 +850,21 @@ class VirgoControlCenter:
             self.playback_speed = self.available_speeds[0]
         # Adjust self.dt so the scene runs based on new speed
         self.dt = self.default_dt * self.playback_speed
+
+    def handle_pause_button(self):
+        """
+        If paused, go to playing. If playing, go to paused.
+        If paused and at the end of the sim, reset world time
+        to the world time start
+        """
+        if self.mode == 'PAUSED':
+            self.mode = 'PLAYING'
+            if math.isclose(self.world_time, self.max_sim_time):
+                self.world_time = self.world_time_start
+        else:
+            self.mode = 'PAUSED'
+        # Update the text actor that displays mode
+        self.text_actors['mode'].SetInput(self.mode)
 
     def decrement_time(self):
         """
@@ -1624,7 +1651,6 @@ class VirgoScene:
           self.controller.save_frame(filename=filename)
           frame_num += 1
           if math.isclose(self.controller.world_time, stop_time):
-          #if math.isclose(self.controller.world_time, 3.0):
             finished = True
         percent_complete=100.0
         sys.stdout.write(f'\rGenerating frames: {percent_complete:8.2f}%\n')

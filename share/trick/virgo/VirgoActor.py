@@ -131,10 +131,35 @@ class VirgoActor(vtk.vtkActor):
             self.source.SetPhiResolution(100)  # Number of divisions in phi (latitude)
             # Create a mapper to map the sphere's geometry to graphics primitives
             mapper.SetInputConnection(self.source.GetOutputPort())
-        elif 'VIRGO_PREFAB:earth' in str(mesh):
+        # High fidelity earth (for simulations very close to earth surface)
+        elif 'VIRGO_PREFAB:earth-3000' in str(mesh):
+            equatorial = 6378137.0
+            polar = 6356752.0
             # Create a sphere source
             self.source = vtk.vtkTexturedSphereSource()
-            self.source.SetRadius(6371000.0)     # Set radius of earth
+            self.source.SetRadius(equatorial)     # Equatorial radius
+            self.source.SetThetaResolution(3000)  # Number of divisions in theta (longitude)
+            self.source.SetPhiResolution(3000)  # Number of divisions in phi (latitude)
+            # Read Earth texture image
+            #reader = vtk.vtkJPEGReader()
+            reader = vtk.vtkPNGReader()
+            reader.SetFileName(os.path.join(thisFileDir, 'images/earth/earth_5400x2700.png'))
+            texture = vtk.vtkTexture()
+            texture.SetInputConnection(reader.GetOutputPort())
+            texture.InterpolateOn()
+            # Create a mapper to map the sphere's geometry to graphics primitives
+            mapper.SetInputConnection(self.source.GetOutputPort())
+            # Scale the sphere to make it an oblate spheroid
+            # Earth radii: equatorial ~6378 km, polar ~6357 km
+            scale_z = polar / equatorial
+            self.SetScale(1.0, 1.0, scale_z)  # squash along Z
+        # Medium fidelity earth (for simulations not too close to the surface)
+        elif 'VIRGO_PREFAB:earth' in str(mesh) or 'VIRGO_PREFAB:earth-300' in str(mesh):
+            equatorial = 6378137.0
+            polar = 6356752.0
+            # Create a sphere source
+            self.source = vtk.vtkTexturedSphereSource()
+            self.source.SetRadius(equatorial)     # Equatorial radius
             self.source.SetThetaResolution(300)  # Number of divisions in theta (longitude)
             self.source.SetPhiResolution(300)  # Number of divisions in phi (latitude)
             # Read Earth texture image
@@ -147,8 +172,6 @@ class VirgoActor(vtk.vtkActor):
             mapper.SetInputConnection(self.source.GetOutputPort())
             # Scale the sphere to make it an oblate spheroid
             # Earth radii: equatorial ~6378 km, polar ~6357 km
-            equatorial = 6378137
-            polar = 6356752
             scale_z = polar / equatorial
             self.SetScale(1.0, 1.0, scale_z)  # squash along Z
         elif 'VIRGO_PREFAB:moon8k' in str(mesh) :
