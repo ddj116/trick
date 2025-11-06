@@ -40,8 +40,8 @@ class VirgoSplash():
         self.render_window = render_window
         self.interactor = interactor
 
-        self.duration = 2.0
-        self.interval = 50
+        self.duration = 2.0    # (s)
+        self.interval = 10000  # (ms)
 
         self.timer_id = None
         self.start_time = None
@@ -101,7 +101,7 @@ class VirgoSplash():
                 # At end of duration, set opacity to 0.0
                 0.0 if (time.time() - start_time) >= self.duration
 
-                # Decrease opacity from 1.0 to 0.0 over interval
+                # Decrease opacity from 1.0 to 0.0 over duration
                 else 1.0 - (time.time() - start_time)/self.duration
             ),
 
