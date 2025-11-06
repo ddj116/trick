@@ -1570,6 +1570,10 @@ class VirgoScene:
             if self.verbosity > 0:
                 print("Entering render window and interactor loop...")
 
+            # Ensure render window and interactor are initialized
+            self.render_window.Render()
+            self.interactor.Initialize()
+
             if self.splash == True:
                 splash = VirgoSplash(self.render_window, self.interactor)
                 splash.show_splash()
