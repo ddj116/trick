@@ -2,8 +2,7 @@
 name: VIRGO entry example
 description: |
      TBD
-start_mode: PAUSED
-end_mode: PAUSED
+start_mode: PLAYING
 background_color: [0.0, 0.0, 0.05]
 highlight_color: [1.0, 1.0, 0.0]
 playback_speeds: [1.0, 5.0, 10.0, 20.0, 50.0, 100.0]
@@ -11,7 +10,7 @@ playback_speed: 1.0
 starfield: 1
 actors:
   moon: 
-    mesh: VIRGO_PREFAB:moon
+    mesh: VIRGO_PREFAB:moon8k
     scale: 1.0             # Size multiplier
     pos:   [0.0, 0.0, 0.0] # initial position offset in scene
     ypr:   [0.0, 0.0, 0.0] # pitch-yaw-roll rotation offset, applied after pos:
@@ -25,13 +24,14 @@ actors:
 picker:
   tolerance: 2e-10
 camera:
-  position: [ 0.0 , -17381000.0, 0]
+  position: [ 0.0 , -13381000.0, 0]
   focal_point: [ 0 , 0, 0]
   near_clipping_plane_tolerance: 5e-7
 sun:
   direction: [1.0, 0.0, 0.0]  # World vector pointing towards sun
+resolution: 1920x1080
 
 lighting:
   start_mode: realistic
-  dark_ambient: 0.2
+  dark_ambient: 0.1
   bright_ambient: 0.7
