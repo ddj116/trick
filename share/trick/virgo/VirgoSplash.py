@@ -26,7 +26,7 @@ class VirgoSplash():
 
             logo (str):       Path to the png
             duration (float): Duration splash is visible (s)
-            interval (int):   Interval opacity is updated (ms)
+            interval (int):   Interval opacity is updated (s)
 
             start_time (float): Fade start time
             timer_id (int):     Timer ID 
@@ -40,8 +40,8 @@ class VirgoSplash():
         self.render_window = render_window
         self.interactor = interactor
 
-        self.duration = 2.0    # (s)
-        self.interval = 10000  # (ms)
+        self.duration = 2.0 # (s)
+        self.interval = 10  # (s)
 
         self.timer_id = None
         self.start_time = None
@@ -90,7 +90,7 @@ class VirgoSplash():
         """
     
         # Trigger TimerEvent at interval
-        timer_id = self.interactor.CreateRepeatingTimer(self.interval)
+        timer_id = self.interactor.CreateRepeatingTimer((self.interval)*(1000))
 
         start_time = time.time()
         
