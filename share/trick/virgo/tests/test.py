@@ -16,16 +16,8 @@ import ut_VirgoActor
 import ut_VirgoDataPlayback
 import ut_VirgoSceneNode
 import ut_VirgoLabel
+import ut_VirgoConsole
 
-# Define load_tests function for dynamic loading using Nose2
-def load_tests(*args):
-    passed_args = locals()
-    suite = unittest.TestSuite()
-    suite.addTests(ut_VirgoActor.suite())
-    suite.addTests(ut_VirgoDataPlayback.suite())
-    return suite
-
-# Local module level execution only
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
       description='Run all VIRGO unit tests.'
@@ -54,6 +46,7 @@ if __name__ == '__main__':
         suites.addTests(ut_VirgoSceneNode.suite())
         suites.addTests(ut_VirgoLabel.suite())
         suites.addTests(ut_VirgoDataPlayback.suite())
+        suites.addTests(ut_VirgoConsole.suite())
 
         # Execute all tests
         runner = unittest.TextTestRunner(verbosity=2)

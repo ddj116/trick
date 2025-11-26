@@ -8,17 +8,20 @@ from VirgoActor import VirgoActor
 from VirgoNode import VirgoSceneNode, VirgoSceneNodeVector
 from VirgoSplash import VirgoSplash
 from VirgoHud import VirgoHud
+from VirgoConsole import VirgoConsole
 from VirgoUtils import cprint
 
 import os, sys, inspect, time, tempfile
 import math, textwrap
 import numpy as np
+from typing import Type, Optional, Dict, Any
 
 # --- Modular VTK Imports (Replaces 'import vtk') ---
 from vtkmodules.vtkRenderingCore import (
   vtkActor,
   vtkTexture,
   vtkCellPicker,
+  vtkInteractorStyle,
   vtkLight,
   vtkPolyDataMapper,
   vtkRenderer,
@@ -51,13 +54,12 @@ from vtkmodules.vtkCommonCore import (
 )
 # ---------------------------------------------------
 
-
 thisFileDir = os.path.dirname(os.path.abspath(inspect.getsourcefile(lambda:0)))
 
 # For TrickPy, the python module that can load trick data record produced files
 sys.path.append(os.path.abspath(os.path.join(thisFileDir, '../')))
 
-# Example of custom interactor style to override the default 'e' key behavior
+
 class VirgoInteractorStyle(vtkInteractorStyleTrackballCamera):
     """
     Virgo Interactor Style which adds some capabilities on top of the VTK
@@ -76,7 +78,6 @@ class VirgoInteractorStyle(vtkInteractorStyleTrackballCamera):
 
     def set_node(self, node):
         self.node = node
-
 
     def get_renderers(self):
         return(self.renderers)
@@ -135,9 +136,20 @@ class VirgoInteractorStyle(vtkInteractorStyleTrackballCamera):
         self.relative_offset = None
         self.view_up = None
 
+
+def virgo_console(func: callable) -> callable:
+    """
+    Define the "console accessible function" decorator. When applied to a function
+    in the VirgoControlCenter below, (via @virgo_console above the function
+    definition) it can be called by the user directly from the Virgo console,
+    neat!
+    """
+    func.is_console_command = True  # marker attribute
+    return func
 class VirgoControlCenter:
     """
-    The main control center class for Virgo Data playback which provides:
+    The main control center class for Virgo playback which provides the main
+    rendering loop, including features:
       World time: Authoritative scene time
       Navigation: Play/Pause and stepping forward/backward through time and
         playback speed
@@ -145,16 +157,20 @@ class VirgoControlCenter:
       HUD: Heads-up display text bordering the scene
       Picking: The ability to click on objects in the scene to get more info
         about them
+      Console: Press ` to open the developer console
     """
     def __init__(self, renderers, render_window, interactor, scene,
                  world_time=0.0, images_dir=None):
         """
-        Constructor
+        Initializer of the VirgoControlCenter
         """
+        self.huge = 1.0e30   # A huge floating point number used for finding smallest values
         # Current scene world time (not necessarily aligned with sim data time)
         self.world_time = self.world_time_start = world_time 
+        self.force_node_update = False     # If true, force node update even when paused
         self.wallclock_time = time.time()  # Actual wall clock time in real life
         self.max_sim_time = 0.0            # highest sim time across all dr groups
+        self.min_sim_time = self.huge      # lowest  sim time across all dr groups
         self.images_dir = images_dir       # Where pictures go when taken
         if images_dir == None:
             self.images_dir = os.path.expanduser("~/Desktop")
@@ -194,7 +210,6 @@ class VirgoControlCenter:
         self.playback_speed = 1.0  # Speed of playback
         # Default playback speeds
         self.available_speeds = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]
-        self.huge = 1.0e30   # A huge floating point number used for finding smallest values
         self._initialized = False
         self.sun_light = None   # vtkLight source of the sun
         self.sun_actor = None   # Sphere used to represent sun in the distance
@@ -207,15 +222,45 @@ class VirgoControlCenter:
         self.camera_pass = None    # Used for rendering in 'realistic' lighting mode
         self.verbosity = 1
         self.hud = None
+        self.virgo_console = None
 
     def initialize(self):
         """
         Set up the scene by:
           * Adding all actors to the renderer
           * Adding all renderers to the render window
-          * Initializing the camera
-          * Setting skybox, playback speed, and other options
+          * Initializing the cameras
+          * Setting skybox, playback speed, and other configurations
           * Initialize lighting
+          * Initialize the virgo console
+        """
+        if not self.actors:
+          msg = (f"ERROR: No actors found in {__class__} initialize() function. ")
+          raise RuntimeError (msg)
+
+        self.initialize_images_dir()
+        self.add_renderers_to_render_window()
+        self._determine_max_and_min_sim_time()
+        self.update_nodes()
+        self.initialize_text_actors()
+        self.initialize_scene_settings()
+        self.add_actors_to_renderers()
+        self.init_camera()
+        self.init_picker()
+        self.init_lighting()
+        self.initialize_console()
+        self._initialized = True
+
+    def add_renderers_to_render_window(self):
+        """
+        Add all renderers to the render window
+        """
+        for r in self.renderers:
+          self.render_window.AddRenderer(self.renderers[r])
+
+    def initialize_images_dir(self):
+        """
+        Ensure self.images_dir exists, creating it if necessary
         """
         if not os.path.exists(self.images_dir):
           try:
@@ -224,15 +269,11 @@ class VirgoControlCenter:
             print("ERROR: Unable to create {self.images_dir}:\n{e}\ntaking "
                   "pictures will not work.")
 
-        if not self.actors:
-          msg = (f"ERROR: No actors found in {__class__} initialize() function. ")
-          raise RuntimeError (msg)
 
-        for r in self.renderers:
-          self.render_window.AddRenderer(self.renderers[r])
-
-        self._determine_max_sim_time()
-        self.update_nodes()
+    def initialize_text_actors(self):
+        """
+        Create the HUD text actors
+        """
         self.text_actors['mode'] = self.create_overlay_text_actor()
         self.text_actors['picked'] = self.create_overlay_text_actor(pos=[10,10])
         self.text_actors['time'] = self.create_overlay_text_actor()
@@ -241,6 +282,11 @@ class VirgoControlCenter:
         self.text_actors['lighting'] = self.create_overlay_text_actor()
         self.text_actors['version'] = self.create_overlay_text_actor()
 
+    def initialize_scene_settings(self):
+        """
+        Read scene settings from the scene dict and apply them by assigning
+        internal members
+        """
         # TODO these options also need to go in the verifier
         if 'start_mode' in self.scene:
             self.mode = self.scene['start_mode'] # Set start mode
@@ -257,35 +303,44 @@ class VirgoControlCenter:
             self.nodes[self.picked_actor.name].highlight_on()
             self.last_picked_actor = self.picked_actor
 
-        # Assign the silhoutte_polydata to a camera
-        # for all actors with highlightable sillhoutte
+    def add_actors_to_renderers(self):
+        """
+        Add all actors to the renderers and assign that silhoutte_polydata to
+        a camera for alla ctors with a highlightable silhoutte
+        """
         for n in self.nodes:
             sp = self.nodes[n].silhouette_polydata 
             if sp != None:
                 sp.SetCamera(self.cameras['foreground'])
-        # Add actors in scene
+        # Add node-based actors in scene
         for n in self.nodes:
             # Only add root nodes to the renderer, all children come along
             # automatically
             if self.nodes[n].parent == None:
                 #import pdb; pdb.set_trace()
                 self.renderers['foreground'].AddActor(self.nodes[n].assembly)
+        # Add all trail actors in scene
         for a in self.trail_actors:
             self.renderers['foreground'].AddActor(self.trail_actors[a])
+        # Add all HUD actors to the scene
         for t in self.text_actors:
             self.renderers['foreground'].AddActor(self.text_actors[t])
-
-        self.init_camera()
-        self.init_picker()
-        self.init_lighting()
+        # Add the sun actor to the scene
         if self.sun_actor:
             self.renderers['background'].AddActor(self.sun_actor)
-        self._initialized = True
 
-    def set_hud(self, _class=VirgoHud):
+    def initialize_console(self, _class=VirgoConsole):
+        """
+        Create the virgo developer console which operates in the console layer
+        """
+        self.virgo_console = _class(renderer=self.renderers['console'],
+                                          interactor=self.interactor,
+                                          vcc=self, font_size=self.fs)
+
+    def initialize_hud(self, _class=VirgoHud):
         self.hud = _class(self.render_window, self.renderers, self.text_actors, self.nodes)
 
-    def _determine_max_sim_time(self):
+    def _determine_max_and_min_sim_time(self):
         """
         Store off the highest simulation time known across all non-static
         nodes/actors.
@@ -295,8 +350,11 @@ class VirgoControlCenter:
             if self.nodes[n].is_static() or self.nodes[n].data_source == None:
                 continue
             last_time_for_actor = self.nodes[n].data_source.get_last_time()
+            first_time_for_actor = self.nodes[n].data_source.get_first_time()
             if last_time_for_actor > self.max_sim_time:
                 self.max_sim_time = last_time_for_actor
+            if first_time_for_actor < self.min_sim_time:
+                self.min_sim_time = first_time_for_actor
 
     def is_initialized(self):
         return self._initialized
@@ -326,6 +384,10 @@ class VirgoControlCenter:
         self.trail_actors = trail_actors_dict
 
     def create_overlay_text_actor(self, pos=[0, 0]):
+        """
+        Create a text actor in the virgo default style, with optional
+        screen position pos given
+        """
         text = vtkTextActor()
         text.GetTextProperty().SetFontFamilyToCourier()
         text.GetTextProperty().SetFontSize(self.fs)
@@ -343,26 +405,31 @@ class VirgoControlCenter:
         for n in self.nodes:
             self.nodes[n].update(self.world_time)
 
+    @virgo_console
     def reset_trails(self):
         '''
         Reset all actor trails to no points, no lines
+
+        TODO: when calling this function followed by step(), the trail line
+        isn't drawn. We need to set the first point of the line after clearing
+        the trail to the last point before clearing the trail... I think. -
+        Jordan
         '''
         for n in self.nodes:
             self.nodes[n].reset_trail()
 
-    def update_scene(self):
+    def update(self):
         """
-        The main scene & node update & play/pause control loop
-        swiftly followed by a window Render()
+        The main scene & node update & play/pause control system called
+        from the timer callback loop. Updates everything in the scene then
+        renders
         """
         if self.mode == 'PLAYING':
           if math.isclose(self.world_time, self.world_time_start):
              self.reset_trails()
           if self.world_time <= self.max_sim_time:
             self.world_time += self.dt
-            self.update_nodes()
-            if self.camera_follows:
-              self.camera_follow(self.camera_follows)
+            self.update_scene()
           else:
              # TODO need verifier for end_mode
              if 'end_mode' in self.scene and self.scene['end_mode'] == 'PAUSED':
@@ -370,14 +437,31 @@ class VirgoControlCenter:
                self.world_time = self.max_sim_time
              else:
                self.world_time = self.world_time_start
+               
+        # In some cases we want to update the scene nodes while not playing
+        # like if the user manually sets the world time to a new time
+        if self.force_node_update:
+            self.update_scene()
 
-        self.position_sun_light()
-        self.position_sun_actor(None, None)
         self.configure_hud()
         # This auto-adjusts clipping based on visible actors
         self.renderers['foreground'].ResetCameraClippingRange()
         # The end of the main update loop, render the image
+
+        # If we forced an update, deactivate it
+        if self.force_node_update:
+            self.force_node_update = False
         self.render_window.Render()
+
+    def update_scene(self):
+        """
+        Update all nodes, update the camera (if following a node), update
+        the sun and it's light.
+        """
+        self.update_nodes()                      # move nodes
+        self.camera_follow(self.camera_follows)  # move camera
+        self.position_sun_light()                # Move sun light
+        self.position_sun_actor(None, None)      # Move sun sphere
 
     def configure_hud(self):
         """
@@ -386,7 +470,8 @@ class VirgoControlCenter:
         self.hud.configure(mode=self.mode, camera_follows=self.camera_follows,
                            playback_speed=self.playback_speed,
                            picked_actor=self.picked_actor, picker_tolerance=self.picker_tolerance,
-                           world_time=self.world_time, max_sim_time=self.max_sim_time, 
+                           world_time=self.world_time, min_sim_time=self.min_sim_time,
+                           max_sim_time=self.max_sim_time, 
                            near_clipping_plane_tolerance=self.near_clipping_plane_tolerance,
                            lighting_mode=self.lighting_mode, help=self.help)
 
@@ -395,7 +480,7 @@ class VirgoControlCenter:
         Main callback for executing the scene update loop
         """
         self.wallclock_time = time.time()  # Actual wall clock time in real life
-        self.update_scene()
+        self.update()
 
         time_one_frame_took = time.time() - self.wallclock_time
         if time_one_frame_took > self.dt:
@@ -441,6 +526,8 @@ class VirgoControlCenter:
             camera following node. If not specified, one is calculated
             automatically
         """
+        if not self.camera_follows:
+            return
         #import pdb; pdb.set_trace()
         # Store off the node the camera follows
         self.camera_follows=node
@@ -540,14 +627,18 @@ class VirgoControlCenter:
                     return vp
         return None
 
+    @virgo_console
     def toggle_node_labels(self):
+        """Turn on/off node labels"""
         for n in self.nodes:
             if self.nodes[n].are_labels_visible():
                 self.nodes[n].hide_labels()
             else:
                 self.nodes[n].show_labels()
 
+    @virgo_console
     def toggle_lighting_modes(self):
+        """Cycle between available lighting modes"""
         # TODO: this should iterate over a dict of self.lighting_modes
         # then check for that mode being in self.scene in init_lighting
         if self.lighting_mode == 'realistic':
@@ -558,6 +649,7 @@ class VirgoControlCenter:
             self.lighting_mode = 'realistic'
         self.set_lighting_mode(self.lighting_mode)
         #print(f"DEBUG: self.renderers['foreground'].GetPass() is {self.renderers['foreground'].GetPass()}")
+        return(self.lighting_mode)
 
     def set_lighting_mode(self, mode):
         all_lights = self.renderers['foreground'].GetLights()
@@ -595,21 +687,27 @@ class VirgoControlCenter:
             if self.nodes[n].actor:
                 self.nodes[n].actor.GetProperty().SetAmbient(value)
 
+    @virgo_console
     def toggle_trails(self):
+        """Turn on/off actor trails"""
         for n in self.nodes:
             if self.nodes[n].is_trail_visible():
                 self.nodes[n].hide_trail()
             else:
                 self.nodes[n].show_trail()
 
+    @virgo_console
     def take_picture(self, filename=None):
+        """Drop a .png of every pixel in the VIRGO window right now"""
         if filename == None:
             filename = os.path.join(self.images_dir,
               (f"virgo_pic_{time.strftime('%Y%m%d_%H%M%S')}.png"))
         self.save_frame(filename=filename)
         print(f"Picture taken: {filename}")
 
+    @virgo_console
     def toggle_axes(self):
+        """Show node axes by making actors translucent"""
         for n in self.nodes:
             if self.nodes[n].are_axes_visible():
                 self.nodes[n].hide_axes()
@@ -631,19 +729,24 @@ class VirgoControlCenter:
         elif self.last_picked_actor:
             self.camera_follow( self.nodes[self.last_picked_actor.name] )
 
+    @virgo_console
     def fontsize(self, direction='up'):
         """
+        Change fontsize in <up|down> direction
         Increment/decrement fontsize of all text actors given the direction
         """
         increment = 2 if direction == 'up' else -2
         for t in self.text_actors:
             self.fs = self.text_actors[t].GetTextProperty().GetFontSize() + increment
             self.text_actors[t].GetTextProperty().SetFontSize(self.fs)
+
+        self.virgo_console.set_font_size(self.virgo_console.get_font_size() + increment)
         # Adjust the fontsize inside the actor instances
         # TODO this should probably be done with a setter rather than straight assignment
         # Also this was intended for axes label size but I never quite got that to work
         for a in self.actors:
             self.actors[a].fs = self.fs
+        return self.fs
 
     def save_frame(self, filename):
         """
@@ -737,18 +840,108 @@ class VirgoControlCenter:
         if key == "space":
             self.handle_pause_button()
         if key == "Left" or key =='comma':
-            self.mode = 'PAUSED'
-            self.decrement_time()
-            self.update_nodes()
-            if self.camera_follows:
-                self.camera_follow(self.camera_follows)
+            self.step('back')
         if key == "Right" or key == 'period':
+            self.step('forward')
+        self.update()
+
+    @virgo_console
+    def step(self, direction='forward'):
+        """
+        Move <forward|backward> through time the smallest resolution possible
+        """
+        if direction.upper().startswith('F') or direction == '+':
             self.mode = 'PAUSED'
             self.increment_time()
-            self.update_nodes()
-            if self.camera_follows:
-                self.camera_follow(self.camera_follows)
-        self.update_scene()
+            self.update_scene()
+        elif direction.upper().startswith('B') or direction == '-':
+            self.mode = 'PAUSED'
+            self.decrement_time()
+            self.update_scene()
+        else:
+            msg = ("ERROR: Unrecognized step direction. Must be f/forward/+"
+                   " or b/backward/-" )
+            raise RuntimeError (msg)
+
+    @virgo_console
+    def quit(self):
+        """Exit VIRGO"""
+        self.interactor.TerminateApp()
+
+    @virgo_console
+    def exit(self):
+        """Exit VIRGO"""
+        self.quit()
+
+    @virgo_console
+    def pause(self):
+        """Change mode to PAUSED a.k.a stop playback"""
+        if self.mode == 'PAUSED':
+            return
+        else:
+            self.handle_pause_button()
+
+    @virgo_console
+    def stop(self):
+        """Change mode to PAUSED a.k.a stop playback"""
+        self.pause()
+
+    @virgo_console
+    def play(self):
+        """Change mode to PLAYING a.k.a start playback"""
+        if self.mode == 'PLAYING':
+            return
+        else:
+            self.handle_pause_button()
+
+    @virgo_console
+    def time(self, intime=None):
+        """
+        Get or set the current world time
+        
+        TODO: it'd be cool if intime could be a string representing the
+        percentage of the total sim time to jump to, for example '50%'
+        to go halfway
+        """
+        if intime != None:
+            try:
+                intime = float(intime)
+            except ValueError:
+                msg = f"ERROR: provided time {intime} must be a float"
+                raise RuntimeError(msg)
+            self.set_time(intime)
+        return(self.world_time)
+
+    def set_time(self, time):
+        """Move the scene to the given world time"""
+        if time > self.max_sim_time or time < self.min_sim_time:
+            msg = ("ERROR: set_time(time) time value must be <="
+                   f"{self.max_sim_time} and >= {self.min_sim_time}")
+            raise RuntimeError(msg)
+        self.world_time = time
+        self.force_node_update = True
+        return(self.world_time)
+
+    @virgo_console
+    def speed(self, inspeed=None):
+        """Get or set playback speed"""
+        if inspeed != None:
+            self.set_speed(inspeed)
+        return(self.playback_speed)
+
+    def set_speed(self, inspeed):
+        """
+        Directly set the playback speed. Does not care about
+        if inspeed is in self.available_speeds
+        """
+        try:
+            inspeed = float(inspeed)
+        except ValueError:
+            msg = f"ERROR: provided speed {inspeed} must be a float"
+            raise RuntimeError(msg)
+        self.playback_speed = inspeed
+        # Adjust self.dt so the scene runs based on new speed
+        self.dt = self.default_dt * self.playback_speed
 
     def cycle_playback_speed(self):
         """
@@ -763,6 +956,7 @@ class VirgoControlCenter:
             self.playback_speed = self.available_speeds[0]
         # Adjust self.dt so the scene runs based on new speed
         self.dt = self.default_dt * self.playback_speed
+        return self.playback_speed
 
     def handle_pause_button(self):
         """
@@ -773,7 +967,7 @@ class VirgoControlCenter:
         if self.mode == 'PAUSED':
             self.mode = 'PLAYING'
             if math.isclose(self.world_time, self.max_sim_time):
-                self.world_time = self.world_time_start
+                self.set_time(self.world_time_start)
         else:
             self.mode = 'PAUSED'
         # Update the text actor that displays mode
@@ -1151,8 +1345,24 @@ class VirgoScene:
     Expects to consume a dict describing the scene dict and populates
     self.nodes (the main scene graph) and other internal members
     """
+    controller_class: Type[VirgoControlCenter] = VirgoControlCenter
+    interactor_class: Type[vtkInteractorStyle] = VirgoInteractorStyle
+
     def __init__(self, scene, verbosity=1, headless=False, stop_time=None,
-                 images_dir="/tmp/", video_filename="/tmp/virgo.mp4", splash=True):
+                 images_dir="/tmp/", video_filename="/tmp/virgo.mp4", splash=True,
+                 controller_class: Optional[Type[VirgoControlCenter]] = None,
+                 controller_kwargs: Optional[Dict[str, Any]] = None,
+                 interactor_class: Optional[Type[vtkInteractorStyle]] = None,
+                 interactor_kwargs: Optional[Dict[str, Any]] = None,
+                 **kwargs,  # other manager-specific args
+                 ):
+        # The controller_class allows override of the default VirgoControlCenter
+        controller_class = controller_class or self.__class__.controller_class
+        controller_kwargs = controller_kwargs or {}
+        # The interactor_class allows override of the default VirgoInteractorStyle
+        interactor_class = interactor_class or self.__class__.interactor_class
+        interactor_kwargs = interactor_kwargs or {}
+
         self.scene = scene # Dict of scene info from YAML file
         self.verbosity = verbosity
         self.splash = splash
@@ -1204,12 +1414,18 @@ class VirgoScene:
         self.renderers['foreground'] = vtkRenderer()  # For actors 1e-2 -> 1e5
         self.renderers['foreground'].SetLayer(2)
         self.renderers['foreground'].SetBackground(self.background_color)
+        self.renderers['console'] = vtkRenderer()  # For the developer console
+        self.renderers['console'].SetLayer(3)
+        self.renderers['console'].SetBackground(self.background_color)
+        self.renderers['console'].InteractiveOff()
         self.render_window.SetNumberOfLayers(len(self.renderers.keys()))
         self.interactor = vtkRenderWindowInteractor()
     
-        self.interactor_style = VirgoInteractorStyle(renderers=self.renderers)
-        self.controller = VirgoControlCenter(self.renderers, self.render_window,
-                                             self.interactor, self.scene)
+        self.interactor_style = interactor_class(renderers=self.renderers,
+                                                 **interactor_kwargs)
+        self.controller = controller_class(self.renderers, self.render_window,
+                                             self.interactor, self.scene,
+                                             **controller_kwargs)
         self.initialized = False
 
     def initialize(self):
@@ -1239,7 +1455,7 @@ class VirgoScene:
 
         self.controller.register_callbacks()
         self.controller.initialize()
-        self.controller.set_hud()
+        self.controller.initialize_hud()
         self.initialized = True
 
     def add_node(self, node, parent_name=None):
@@ -1589,8 +1805,7 @@ class VirgoScene:
           #import pdb; pdb.set_trace()
           sys.stdout.write(f'\rGenerating frames in {tmp_dir}: {percent_complete:8.2f}%')
           sys.stdout.flush()  # Ensure it updates immediately
-          self.controller.update_scene()
-          #self.render_window.Render()  # update_scene does this already
+          self.controller.update()
           filename = os.path.join(tmp_dir,
                                 f"frame_{frame_num:07d}.png")
           self.controller.save_frame(filename=filename)

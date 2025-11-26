@@ -59,14 +59,14 @@ class VirgoEntryControlCenter(VirgoControlCenter):
           self.altitude_texts[l].enable()
           self.renderers['foreground'].AddActor(self.altitude_texts[l].get_follower())
 
-    def update_scene(self):
+    def update(self):
         """
         Extends the base class update() function to provide a custom main
         update loop which adds additional behavior. The additional behavior is to
         look for the spacecraft crossing particular altitudes and position labels
         at the crossing point.
         """
-        super().update_scene()
+        super().update()
         current_altitude = self.nodes['satellite'].data_source.get_additional_data('sat_alt')
         remove_this_layer = None
         for l in self.remaining_altitude_layers:
@@ -93,17 +93,15 @@ class EntryDataPlayback(VirgoDataPlayback):
     VirgoDataPlayback's base class VirgoScene.__init__(), it's reassigned to a
     custom controller (VirgoEntryControlCenter) defined in this file.
     """
+    # Tell the VirgoScene to use a custom class for the self.controller
+    # See VirgoScene.controller_class for details
+    controller_class = VirgoEntryControlCenter
     def __init__(self, run_dir, scene, verbosity=1, headless=False,
                  images_dir="/tmp/", video_filename="/tmp/virgo.mp4", splash=True):
 
         super().__init__(run_dir=run_dir, scene=scene, verbosity=verbosity,
                          headless=headless, images_dir=images_dir,
                          video_filename=video_filename, splash=splash)
-
-        # Overwrite the default self.controller with our own instance
-        self.controller = VirgoEntryControlCenter(
-            renderers=self.renderers, render_window=self.render_window,
-            interactor=self.interactor, scene=self.scene)
 
 class ExtendedEntryExample(EntryExample):
     """

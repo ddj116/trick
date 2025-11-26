@@ -172,7 +172,7 @@ class VirgoScreenSaverControlCenter(VirgoControlCenter):
     self.cameras['foreground'].Azimuth(self.rotation_speed)
     self.cameras['foreground'].SetFocalPoint(0, 0, 0)
 
-  def update_scene(self):
+  def update(self):
     """
     Overrides the base class update() function to provide a custom main
     update loop. Noteably this skips the standard HUD information and
@@ -194,6 +194,8 @@ class VirgoScreenSaver(VirgoScene):
   we just need to replace the controller with a custom controller
   we define (VirgoScreenSaverControlCenter).
   """
+  # Tell the VirgoScene to use a custom class for the self.controller
+  controller_class = VirgoScreenSaverControlCenter
   def __init__(self, scene, weather_api_key, zip, verbosity=2):
     """
     Override the base class initializer to add some weather
@@ -201,11 +203,12 @@ class VirgoScreenSaver(VirgoScene):
     """
     self.weather_api_key = weather_api_key
     self.zip = zip
-    super().__init__(scene=scene, verbosity=verbosity)
-    self.controller = VirgoScreenSaverControlCenter(
-        renderers=self.renderers, render_window=self.render_window,
-        interactor=self.interactor, scene=self.scene,
-        weather_api_key=self.weather_api_key, zip=self.zip)
+    # controller_kwargs is optional, but if specified these additional
+    # arguments are passed to self.controller's construction
+    controller_kwargs = {'weather_api_key':self.weather_api_key,
+                         'zip':self.zip}
+    super().__init__(scene=scene, verbosity=verbosity,
+                     controller_kwargs=controller_kwargs)
 
   def initialize_nodes(self):
     """

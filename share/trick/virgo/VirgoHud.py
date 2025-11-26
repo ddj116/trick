@@ -105,7 +105,7 @@ class VirgoHud:
         if math.isclose(self.max_sim_time, 0.0):
             percent_complete = f"???"
         else:
-            percent_complete = f"{self.world_time / self.max_sim_time * 100:<4.2f}"
+            percent_complete = f"{self.world_time / (self.max_sim_time - self.min_sim_time) * 100:<4.2f}"
         self.text_actors['time'].SetInput(
             f"World time: {self.world_time:<10.5f} / {self.max_sim_time} sec [{percent_complete} %]"
             )
@@ -183,8 +183,8 @@ class VirgoHud:
         self.text_actors['version'].SetInput(f"VIRGO {self.version}")
 
     def configure(self, mode, camera_follows, playback_speed, picked_actor,
-                  picker_tolerance, world_time, max_sim_time, near_clipping_plane_tolerance,
-                  lighting_mode, help):
+                  picker_tolerance, world_time, min_sim_time, max_sim_time,
+                  near_clipping_plane_tolerance, lighting_mode, help):
         """
         Configure the heads-up-display.  Calls functions for each logical
         section of the HUD. Does not render.
@@ -198,6 +198,7 @@ class VirgoHud:
         self.picker_tolerance = picker_tolerance
         self.near_clipping_plane_tolerance  = near_clipping_plane_tolerance
         self.world_time = world_time
+        self.min_sim_time = min_sim_time
         self.max_sim_time = max_sim_time
         self.lighting_mode = lighting_mode
         self.help = help
