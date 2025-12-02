@@ -95,8 +95,8 @@ class VirgoDataPlayback(VirgoScene):
                                       positions=positions, scales=scales,
                                       opacities=opacities, **additional_data )
             vds.initialize()
-            #import pdb; pdb.set_trace()
             node.set_data_source(vds)
+            #import pdb; pdb.set_trace()
 
 
         # If labels: are provided for the node/actor, 

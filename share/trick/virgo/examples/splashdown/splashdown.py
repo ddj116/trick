@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(thisFileDir, '../../')))
 from VirgoDataPlayback import VirgoDataPlayback
 
 parser = argparse.ArgumentParser(description=
-        'Visualize the satellite data in log_Satellite.csv using VIRGO.',
+        'Visualize the splashdown data in log_splashdown.csv using VIRGO.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
         )
 parser.add_argument("--scene-config", help="YAML config file to load",
@@ -22,12 +22,12 @@ parser.add_argument("--video-filename",
                     default=os.path.join(thisFileDir, 'satellite.mp4'))
 args = parser.parse_args()
 
-class SatelliteExample:
+class SplashdownExample:
     def __init__(self):
         with open(args.scene_config) as file:
             scene = yaml.safe_load(file) 
         # VirgoDataPlayback is the VirgoScene we want because it's built
-        # to consume TrickPy-compatible data, which log_Satellite.csv meets
+        # to consume TrickPy-compatible data, which log_splashdown.csv meets
         self.v = VirgoDataPlayback(run_dir=args.data_dir, scene=scene,
                                     headless=args.headless,
                                     video_filename=args.video_filename)
@@ -37,4 +37,4 @@ class SatelliteExample:
         return(self.v.run())
 
 if __name__ == '__main__':
-    sys.exit(SatelliteExample().execute())
+    sys.exit(SplashdownExample().execute())

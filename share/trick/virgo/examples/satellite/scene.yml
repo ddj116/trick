@@ -7,14 +7,15 @@ description: |
      torque on the vehicle. During the simulation, two periods of RCS jet
      firings occur which change the orientation of the vehicle. When RCS jets
      fire, yellow cylinders are set to visible which indicate a force is being
-     applied
+     applied.  See more information about this sim here:
+     https://github.com/nasa/trick/tree/master/trick_sims/SIM_splashdown
 start_mode: PAUSED
 end_mode: PAUSED
 background_color: [0.0, 0.0, 0.05]
 highlight_color: [1.0, 1.0, 0.0]
 playback_speeds: [1.0, 5.0, 10.0, 20.0, 50.0, 100.0]
 playback_speed: 1.0
-resolution: 800x600
+resolution: 1280x720
 starfield: 1
 data_source:
   trickpy:  # Logged data to read into virgo during init
@@ -25,12 +26,12 @@ data_source:
     sat_pos: 
       group: satellite            # Data recording group
       var: dyn.satellite.pos[0-2] # Data recording variable
+    sat_rot: 
+      group: satellite                     # Data recording group
+      var: dyn.satellite.Rtrans[0-2][0-2]  # Data recording variable
     sat_vel: 
       group: satellite            # Data recording group
       var: dyn.satellite.vel[0-2] # Data recording variable
-    sat_rot: 
-      group: satellite                # Data recording group
-      var: dyn.satellite.Rtrans[0-2][0-2]  # Data recording variable
     sat_force: 
       group: satellite                # Data recording group
       var: dyn.satellite.force[0-2]   # Data recording variable
@@ -88,29 +89,25 @@ frames:
   RCS_T:  # Location of the T-set of RCS jets
     pos: [0.0, 0.0, 1.956]
     ypr: [0.0, 0.0, 0.0]
-    scale: 1.0
     parent: satellite
   RCS_R:  # Location of the R-set of RCS jets
     pos: [0.0, 1.956, 0.0]
     ypr: [0.0, 0.0, 0.0]
-    scale: 1.0
     parent: satellite
   RCS_B:  # Location of the B-set of RCS jets
     pos: [0.0, 0.0, -1.956]
     ypr: [0.0, 0.0, 0.0]
-    scale: 1.0
     parent: satellite
   RCS_L:  # Location of the L-set of RCS jets
     pos: [0.0, -1.956, 0.0]
     ypr: [0.0, 0.0, 0.0]
-    scale: 1.0
     parent: satellite
 actors:
   earth: 
     mesh: VIRGO_PREFAB:earth
     scale: 1.0             # Size multiplier
     pos:   [0.0, 0.0, 0.0] # initial position offset in scene
-    ypr:   [0.0, 0.0, 0.0] # pitch-yaw-roll rotation offset, applied after pos:
+    ypr:   [0.0, 0.0, 0.0] # yaw-pitch-roll rotation offset, applied after pos:
     pickable: 0
     labels:
       name:
@@ -118,18 +115,15 @@ actors:
         pos: [0.0, 0.0, 6500000.0]
         ypr: [0.0, 0.0, 90.0]
         scale: 300000
+    axes: 
+      when: never          # always, never, picked, or toggled
   satellite:
     mesh: VIRGO_PREFAB:cube         # Size multiplier
     scale: 3.0
     pos: [0.0, 0.0, 0.0]
     ypr: [0.0, 0.0, 0.0]
     color: [0.6, 0.6, 0.6]
-    pickable:   # If given, this actor is pickable with the mouse
-      focus: 1  # TO BE IMPLEMENTED: On pick, focus camera on actor
-      hud:      # TO BE IMPLEMENTED: While picked, display these values
-        position: 1
-        rotation: 1
-        custom: TBD  # Custom Actor callback to display anything
+    pickable: 1
     trail:
       enabled: 1
       color: [0.0, 1.0, 0.0] #  # Color of trail
@@ -152,8 +146,8 @@ actors:
             y: {sat_vel[1]:<10.5f}
             z: {sat_vel[2]:<10.5f}
         pos: [2.0, -0.5, 0.0]
-  # RCS Jet positions and force directions in the body frame taken from
-  # Satellite::initialize()
+  # RCS Jet positions and force directions in the 
+  # body frame taken from Satellite::initialize()
   RCS_T1:
     mesh: VIRGO_PREFAB:cone
     scale: 1.0

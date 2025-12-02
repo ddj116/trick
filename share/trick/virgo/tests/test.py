@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
-"""Unit test script to test VIRGO module"""
+"""
+Unit test script to test VIRGO module
+
+If you are trying to run a single test, suggest using something like:
+  python -m unittest ut_VirgoScene.py 
+"""
 
 # An attempt to workaround unsafe garbage collection interacting with python VTK
 # See the following link for details on why we do this
@@ -14,6 +19,8 @@ import ut_VirgoTrickpyFileLoader
 import ut_VirgoDataFileSource
 import ut_VirgoActor
 import ut_VirgoDataPlayback
+import ut_VirgoScene
+import ut_VirgoControlCenter
 import ut_VirgoSceneNode
 import ut_VirgoLabel
 import ut_VirgoConsole
@@ -46,6 +53,8 @@ if __name__ == '__main__':
         suites.addTests(ut_VirgoSceneNode.suite())
         suites.addTests(ut_VirgoLabel.suite())
         suites.addTests(ut_VirgoDataPlayback.suite())
+        suites.addTests(ut_VirgoScene.suite())
+        suites.addTests(ut_VirgoControlCenter.suite())
         suites.addTests(ut_VirgoConsole.suite())
 
         # Execute all tests

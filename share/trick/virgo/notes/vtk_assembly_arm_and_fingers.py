@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 import vtk
 
 # --- Helper function to make a cone actor with its tip at the origin ---

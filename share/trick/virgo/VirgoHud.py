@@ -115,18 +115,23 @@ class VirgoHud:
         """
         camera_info = f"Camera: Follow {self.camera_follows.name}" if self.camera_follows else "Camera: Free" 
         self.text_actors['camera'].SetInput(f"{camera_info}")
-        bounds = [0] * 4 # Get the text bounding box in display coordinates  [xmin, xmax, ymin, ymax]
-        self.text_actors['camera'].GetBoundingBox(self.renderers['foreground'], bounds)
-        text_width = bounds[1] - bounds[0] + 1  # Width in pixels
-        text_height = bounds[3] - bounds[2] + 1  # Height in pixels
-        # Calculate position for bottom-right corner with padding
-        x_pos = (window_width - text_width - hud_padding)/1.3  # 2/3ish the way over on right side
-        y_pos = window_height - text_height - hud_padding  # Top edge (20 pixels from bottom)
-        self.text_actors['camera'].SetPosition(x_pos, y_pos)
-
         lighting_info = f"Lighting: {self.lighting_mode}" 
         self.text_actors['lighting'].SetInput(f"{lighting_info}")
-        self.text_actors['lighting'].SetPosition(x_pos, y_pos-text_height)
+        # Compute the bounding boxes of the camera and lighting text actors
+        bounds_camera = bounds_lighting = [0] * 4 # Get the text bounding box in display coordinates  [xmin, xmax, ymin, ymax]
+        self.text_actors['camera'].GetBoundingBox(self.renderers['foreground'], bounds_camera)
+        self.text_actors['lighting'].GetBoundingBox(self.renderers['foreground'], bounds_lighting)
+        camera_text_width = bounds_camera[1] - bounds_camera[0] + 1  # Width in pixels
+        camera_text_height = bounds_camera[3] - bounds_camera[2] + 1  # Height in pixels
+        lighting_text_width = bounds_lighting[1] - bounds_lighting[0] + 1  # Width in pixels
+        lighting_text_height = bounds_lighting[3] - bounds_lighting[2] + 1  # Height in pixels
+        max_width = max(camera_text_width, lighting_text_width)
+        # Calculate position for bottom-right corner with padding
+        camera_x_pos = (window_width - max_width - hud_padding)/1.3  # 2/3ish the way over on right side
+        camera_y_pos = window_height - camera_text_height - hud_padding  # Top edge (20 pixels from bottom)
+        self.text_actors['camera'].SetPosition(camera_x_pos, camera_y_pos)
+
+        self.text_actors['lighting'].SetPosition(camera_x_pos, camera_y_pos-camera_text_height)
 
     def configure_help(self, window_width, window_height, hud_padding=20):
         """
@@ -158,6 +163,7 @@ class VirgoHud:
                 f"\n h: Toggle this help message"
                 f"\n j/k: Near Plane Clipping Tolerance"
                 f"\n J/K: Picker Tolerance"
+                f"\n `: Toggle Developer console"
                 f"\n Q: Quit"
                 )
             # Get the text bounding box in display coordinates  [xmin, xmax, ymin, ymax]

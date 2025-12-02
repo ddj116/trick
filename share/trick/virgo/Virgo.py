@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """
 VIRGO: Versatile Imaging and Rendering for Galactic Operations
 A Practical, Analytical, and Hardworking 3D Visualization tool
@@ -244,10 +244,10 @@ class VirgoControlCenter:
         self.update_nodes()
         self.initialize_text_actors()
         self.initialize_scene_settings()
+        self.init_lighting()
         self.add_actors_to_renderers()
         self.init_camera()
         self.init_picker()
-        self.init_lighting()
         self.initialize_console()
         self._initialized = True
 
@@ -301,6 +301,7 @@ class VirgoControlCenter:
         if 'pick' in self.scene and self.scene['pick'] in self.actors:
             self.picked_actor = self.actors[self.scene['pick']]
             self.nodes[self.picked_actor.name].highlight_on()
+            self.nodes[self.picked_actor.name].set_currently_picked(True)
             self.last_picked_actor = self.picked_actor
 
     def add_actors_to_renderers(self):
@@ -526,6 +527,10 @@ class VirgoControlCenter:
             camera following node. If not specified, one is calculated
             automatically
         """
+        # TODO: I don't like how we have a member called self.camera_follows and a
+        # function of nearly the same name, mostly in that we have to assign self.camera_follows
+        # then call this function. We should be able to rename self._camera_follows and assign
+        # it's value directly in this function
         if not self.camera_follows:
             return
         #import pdb; pdb.set_trace()
@@ -589,14 +594,13 @@ class VirgoControlCenter:
 
         if self.picked_actor and self.picked_actor in self.actors.values():
             self.configure_hud()
-            # TODO this functionality is broken and I'm not sure we even want it
-            # as the user experience is weird
-            #self.focus_camera_on(self.picked_actor)
         if self.last_picked_actor:
             self.nodes[self.last_picked_actor.name].highlight_off()
+            self.nodes[self.last_picked_actor.name].set_currently_picked(False)
 
         if self.picked_actor:
             self.nodes[self.picked_actor.name].highlight_on()
+            self.nodes[self.picked_actor.name].set_currently_picked(True)
             # Un-highlight color of the previously picked actor
             if self.last_picked_actor and self.last_picked_actor != self.picked_actor:
                 self.nodes[self.last_picked_actor.name].highlight_off()
@@ -707,7 +711,7 @@ class VirgoControlCenter:
 
     @virgo_console
     def toggle_axes(self):
-        """Show node axes by making actors translucent"""
+        """Show node axes and force actors to be translucent"""
         for n in self.nodes:
             if self.nodes[n].are_axes_visible():
                 self.nodes[n].hide_axes()
@@ -726,8 +730,13 @@ class VirgoControlCenter:
             else:
                 self.camera_follows = None
         # Otherwise change the node we follow to the picked node
-        elif self.last_picked_actor:
-            self.camera_follow( self.nodes[self.last_picked_actor.name] )
+        else:
+            if self.picked_actor:
+                self.camera_follows = self.picked_actor
+                self.camera_follow( self.nodes[self.picked_actor.name] )
+            elif self.last_picked_actor:
+                self.camera_follows = self.last_picked_actor
+                self.camera_follow( self.nodes[self.last_picked_actor.name] )
 
     @virgo_console
     def fontsize(self, direction='up'):
@@ -835,8 +844,7 @@ class VirgoControlCenter:
             self.increase_picker_tolerance()
         if key == "c":
             self.toggle_camera_modes()
-            if self.verbosity > 1:
-                self.camera_report()
+            self.camera_report()
         if key == "space":
             self.handle_pause_button()
         if key == "Left" or key =='comma':
@@ -980,9 +988,6 @@ class VirgoControlCenter:
         Across all nodes with a data source, find the time before (to the left of)
         self.world_time that is closest to self.world_time and set self.world_time
         to that value
-
-        TODO: This has not been tested with multiple data record groups logging at
-        specific rates.
         """
         largest_time = - self.huge # Negative Huge
         for n in self.nodes:
@@ -1000,7 +1005,7 @@ class VirgoControlCenter:
             for n in self.nodes:
                 if self.nodes[n].data_source == None:
                     return
-                self.actors[n].data_source.set_current_time(self.world_time, strategy='closest')
+                self.nodes[n].data_source.set_current_time(self.world_time, strategy='closest')
                 
     def increment_time(self):
         """
@@ -1009,12 +1014,8 @@ class VirgoControlCenter:
         Across all nodes with a data source, find the time after (to the right of)
         self.world_time that is closest to self.world_time and set self.world_time
         to that value
-
-        TODO: This has not been tested with multiple data record groups logging at
-        specific rates.
         """
         smallest_time = self.huge # Huge
-        #import pdb; pdb.set_trace()
         for n in self.nodes:
             if self.nodes[n].data_source == None:
                 continue
@@ -1023,7 +1024,7 @@ class VirgoControlCenter:
                 continue
             if nt < smallest_time:
                 smallest_time = nt
-        # Decrease the world time
+        # Increase the world time
         if smallest_time < self.huge:
             #print(f"Setting (increment) world_time to {smallest_time}")
             self.world_time = smallest_time
@@ -1120,12 +1121,19 @@ class VirgoControlCenter:
         """
         Debug function for seeing where the camera is
         """
+        mode = f"follow: {self.camera_follows.name}" if self.camera_follows else 'free'
+        print(f"Camera report:")
+        print(f"  mode: {mode}")
         for c in self.cameras:
-          print(f"Camera: {c}")
-          print("  Position:", self.cameras[c].GetPosition())
-          print("  Focal Point:", self.cameras[c].GetFocalPoint())
-          print("  View Up:", self.cameras[c].GetViewUp())
-          print(f"  Clipping range: {self.cameras[c].GetClippingRange()}")
+          # Other renderer cameras all sync to foreground so don't show them
+          # unless verbosity is high
+          if self.verbosity < 3 and c != 'foreground':
+              continue
+          print(f"  {c} camera:")
+          print(f"    position: {self.cameras[c].GetPosition()}")
+          print(f"    focal point: {self.cameras[c].GetFocalPoint()}")
+          print(f"    view up: {self.cameras[c].GetViewUp()}")
+          print(f"    clipping range: {self.cameras[c].GetClippingRange()}")
           print("Renderer info:")
         for r in self.renderers:
           print(f"  {r} NearClippingPlanTolerance: {self.renderers[r].GetNearClippingPlaneTolerance()} ")
@@ -1292,6 +1300,9 @@ class VirgoControlCenter:
         return self.nodes.get(name)
 
     def init_sun(self):
+        """
+        Create and initialize the sun sphere and light source
+        """
         sun_scale=1.0
         if 'sun' in self.scene and self.scene['sun'] != None:
           if 'direction' in self.scene['sun']:
@@ -1380,7 +1391,7 @@ class VirgoScene:
         self.background_color = [0.0, 0.0, 0.05]
         self.highlight_color = [1.0, 1.0, 0.0]
         self.description = "Untitled VIRGO Window"
-        self.name = "Untitled_VIRGO_scene"
+        self.name = "Untitled VIRGO Scene"
         self.window_width = 800
         self.window_height = 600
         # TODO: this checking can be removed once the dict verifier is in place
@@ -1398,26 +1409,7 @@ class VirgoScene:
             self.splash = self.scene['splash']
 
         self.render_window = vtkRenderWindow()
-        self.renderers = {}
-        # We have multiple renderers to help overcome single precision depth buffer issues.
-        # Each renderer operates in it's own layer composited on top of the last,
-        # background first ending with foreground
-        self.renderers['skybox'] = vtkRenderer()  # For actors 1e-10 -> 1e17
-        self.renderers['skybox'].SetLayer(0)
-        self.renderers['skybox'].InteractiveOff()
-        self.renderers['skybox'].SetBackground(self.background_color)
-        self.renderers['background'] = vtkRenderer()  # For actors 1e-10 -> 1e17
-        self.renderers['background'].SetLayer(1)
-        self.renderers['background'].InteractiveOff()
-        self.renderers['background'].SetBackground(self.background_color)
-        # TODO: probably want a 'midground' renderer      # For actors 1e-4 -> 1e11
-        self.renderers['foreground'] = vtkRenderer()  # For actors 1e-2 -> 1e5
-        self.renderers['foreground'].SetLayer(2)
-        self.renderers['foreground'].SetBackground(self.background_color)
-        self.renderers['console'] = vtkRenderer()  # For the developer console
-        self.renderers['console'].SetLayer(3)
-        self.renderers['console'].SetBackground(self.background_color)
-        self.renderers['console'].InteractiveOff()
+        self.renderers = self.setup_renderers(self.background_color)
         self.render_window.SetNumberOfLayers(len(self.renderers.keys()))
         self.interactor = vtkRenderWindowInteractor()
     
@@ -1427,6 +1419,38 @@ class VirgoScene:
                                              self.interactor, self.scene,
                                              **controller_kwargs)
         self.initialized = False
+
+    @staticmethod
+    def setup_renderers(bg_color):
+        """
+        Create a dictionary of renderers, one for each layer in the scene
+        and return it
+
+        We have multiple renderers to help overcome single precision depth buffer issues.
+        Each renderer operates in it's own layer composited on top of the last,
+        background first ending with foreground
+
+        Returns: dict of vtkRenderer instances
+        """
+        rs = {}
+        rs['skybox'] = vtkRenderer()  # For actors 1e-10 -> 1e17
+        rs['skybox'].SetLayer(0)
+        rs['skybox'].InteractiveOff()
+        rs['skybox'].SetBackground(bg_color)
+        rs['background'] = vtkRenderer()  # For actors 1e-10 -> 1e17
+        rs['background'].SetLayer(1)
+        rs['background'].InteractiveOff()
+        rs['background'].SetBackground(bg_color)
+        # TODO: probably want a 'midground' renderer      # For actors 1e-4 -> 1e11
+        rs['foreground'] = vtkRenderer()  # For actors 1e-2 -> 1e5
+        rs['foreground'].SetLayer(2)
+        rs['foreground'].SetBackground(bg_color)
+        rs['console'] = vtkRenderer()  # For the developer console
+        rs['console'].SetLayer(3)
+        rs['console'].SetBackground(bg_color)
+        rs['console'].InteractiveOff()
+
+        return rs
 
     def initialize(self):
         """
@@ -1438,7 +1462,7 @@ class VirgoScene:
         # Initialize the heads-up-display
 
         self.render_window.SetSize(self.window_width, self.window_height)
-        self.render_window.SetWindowName(self.description)
+        self.render_window.SetWindowName(self.name)
 
         if self.headless:
             print("Running in headless (non-interactive) mode.")
@@ -1472,7 +1496,23 @@ class VirgoScene:
         """
         TODO: Call a dict verifier here, similar to TrickWorkflowYamlVerifier
         """
-        pass
+        # This needs to move to a dict verifier but for now this check is critical
+        # so do it! No duplicate names across node-like instances, meaning actors:
+        # vectors: and frames: must be unique across all three sets
+        x = []
+        if 'actors' in self.scene:
+            x.append(self.scene['actors'])
+        if 'frames' in self.scene:
+            x.append(self.scene['frames'])
+        if 'vectors' in self.scene:
+            x.append(self.scene['vectors'])
+        all_nodelike_names =  [k for d in x for k in d]
+        if len(all_nodelike_names) != len(set(all_nodelike_names)):
+            duplicates = {k for k in all_nodelike_names if all_nodelike_names.count(k) > 1}
+            msg = (f"Duplicate names detected: {duplicates}. There can be no identical "
+                  f"names across all actors: frames: and vectors: dicts. Rename and try "
+                  f"again.")
+            raise RuntimeError(msg)
 
     def create_actor(self, actor_name, actor_scene_dict=None,):
         """
@@ -1545,20 +1585,6 @@ class VirgoScene:
 
         return vector
 
-    def create_frame(self, frame_name, frame_scene_dict=None):
-        """
-        Creates a VirgoActor with no mesh from the information in the
-        frame_scene_dict
-
-        TODO: need checking for YAML field correctness! For example frames only
-        respect a subset of actor parameters: parent, pos, and ypr. Things like
-        color, and scale are meaningless as there's no mesh for a frame
-        """
-        # Frames cannot have a mesh, so set it to None before we create the actor
-        frame_scene_dict['mesh'] = None
-        frame = self.create_actor(actor_name=frame_name, actor_scene_dict=frame_scene_dict)
-        return frame
-
     def create_node(self, actor, actor_scene_dict=None, _class=None):
         """
         Creates a VirgoSceneNode associated with actor from the information
@@ -1587,6 +1613,18 @@ class VirgoScene:
         if 'parent' in actor_scene_dict and actor_scene_dict['parent'] != None:
           parent_name=actor_scene_dict['parent']
 
+        if 'axes' in actor_scene_dict and  actor_scene_dict['axes'] != None: 
+          if ('affect_opacity' in actor_scene_dict['axes'] and 
+              actor_scene_dict['axes']['affect_opacity'] != None): 
+              node.set_axes_affect_opacity(actor_scene_dict['axes']['affect_opacity'])
+          if 'style' in actor_scene_dict['axes']  and actor_scene_dict['axes']['style'] != None: 
+              node.set_axes_style(actor_scene_dict['axes']['style'])
+          if 'length' in actor_scene_dict['axes']  and actor_scene_dict['axes']['length'] != None: 
+              node.set_axes_length(actor_scene_dict['axes']['length'])
+          # Note 'when' is deliberately last since it can be affected by the above settings
+          if 'when' in actor_scene_dict['axes']  and actor_scene_dict['axes']['when'] != None: 
+              node.set_axes_when(actor_scene_dict['axes']['when'])
+
         # If labels: are provided for the node/actor, 
         if 'labels' in actor_scene_dict:
           labels = actor_scene_dict['labels']
@@ -1607,9 +1645,13 @@ class VirgoScene:
               color = labels[label]['color']
             # Add the label to the node
             node.add_label(name=label, text=text, position=position, ypr=ypr, scale=scale, color=color)
-            # Tell the label to follow the camera so it always faces it,
-            # THIS ISNT WORKING RIGHT NOW I THINK BECAUSE OF THE ASSEMBLY SYSTEM
-            #node.get_label(label).get_follower().SetCamera(self.renderer.GetActiveCamera())
+            # Tell the label to follow the camera so it always faces it, this is how it's
+            # supposed to be done but it isn't working as expected, the text will move but
+            # it won't follow the camera - I think it's because the text is underneath the
+            # assembly system. If this is a limitation of the VTK framework we could consider
+            # a separate function after all nodes update that orients each label to face the
+            # camera manually, not sure how to do that but it must be possible.
+            #node.get_label(label).get_follower().SetCamera(self.renderers['foreground'].GetActiveCamera())
 
         return node, parent_name
 
@@ -1663,18 +1705,15 @@ class VirgoScene:
                                 actor_scene_dict=self.scene['frames'][f],
                                 _class=fncc)
             node.set_name(f)
-            # TODO: I don't think frames should be static, need to test if we can drive them
-            # as making them static is a major limitation that I don't think is needed -Jordan
-            node.set_static=True
-            # TODO I'm not convinced using 'scale' to represent axes size is
-            # the best idea as it may cause confusion to the user - after
-            # all frames dont have meshes...
-            axes_scale = 1.0
-            if 'scale' in self.scene['frames'][f]:
-                axes_scale = self.scene['frames'][f]['scale']
-            node.set_axes_length(axes_scale,axes_scale,axes_scale)
             node.set_axes_pickable_on()
-            node.set_pose(pos=self.scene['frames'][f]['pos'], ypr=self.scene['frames'][f]['ypr'])
+
+            pos=[0.0, 0.0, 0.0]
+            ypr=[0.0, 0.0, 0.0]
+            if 'pos' in self.scene['frames'][f]:
+                pos=self.scene['frames'][f]['pos']
+            if 'ypr' in self.scene['frames'][f]:
+                ypr=self.scene['frames'][f]['ypr']
+            node.set_pose(pos=pos, ypr=ypr)
             nodes_to_add.append( (node, parent_name) )
 
         actors = {}

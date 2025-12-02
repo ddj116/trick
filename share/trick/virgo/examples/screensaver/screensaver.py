@@ -1,5 +1,6 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 import datetime
+import numpy as np
 
 import sys, os, argparse, yaml, inspect
 # Add location of VIRGO code to sys.path so we can import classes
@@ -27,7 +28,7 @@ class VirgoScreenSaverControlCenter(VirgoControlCenter):
     self.text_actors['thetime'].GetTextProperty().SetFontFamilyToArial()
     self.text_actors['thetime'].GetTextProperty().SetBold(1)
     self.text_actors['thetime'].GetTextProperty().SetFontSize(50)
-    self.text_actors['thetime'].GetTextProperty().SetColor(0.6, 0.0, 0.0)
+    self.text_actors['thetime'].GetTextProperty().SetColor(0.0, 0.4, 0.0)
     self.text_actors['weather'] = self.create_overlay_text_actor()
     self.text_actors['weather'].GetTextProperty().SetFontFamilyToArial()
     self.text_actors['weather'].GetTextProperty().SetFontSize(50)
@@ -35,6 +36,12 @@ class VirgoScreenSaverControlCenter(VirgoControlCenter):
     self.text_actors['weather'].GetTextProperty().SetBold(1)
     self.API_KEY = self.weather_api_key
         
+  def configure_hud(self):
+    """
+    Overrides base class to do nothing. This let's a right-click pick still
+    work but without the HUD interaction
+    """
+    pass
 
   def on_key_press(self, caller, event):
     """
@@ -52,6 +59,7 @@ class VirgoScreenSaverControlCenter(VirgoControlCenter):
             if self.nodes[n].parent == None:
                 self.nodes[n].report()
     if key == "c":
+        self.toggle_camera_modes()
         self.camera_report()
     if key == 'l':
         # Turn actor axes on/off
@@ -83,6 +91,9 @@ class VirgoScreenSaverControlCenter(VirgoControlCenter):
     """
     super().initialize()
     self.weather = self.get_weather(self.zip)
+    # Auto-adjust clipping range. With large bodies in the scene this ensures
+    # they'll show up when the scene starts
+    self.renderers['foreground'].ResetCameraClippingRange()
 
   def get_weather(self, zip_code):
     """
@@ -165,12 +176,19 @@ class VirgoScreenSaverControlCenter(VirgoControlCenter):
     y_pos = window_height - text_height - hud_padding  # Bottom edge (20 pixels from bottom)
     self.text_actors['thetime'].SetPosition(x_pos, y_pos)
 
-  def move_camera(self):
+  def camera_follow(self, node, initial_offset=None):
     """
-    Rotate the camera about the focal point each frame
+    Extend the base class camera_follow() function to add a gentle rotation
+    about the focal point. The focal point can be changed by right-click
+    picking the actor and pressing 'c' to focus the camera on it.
     """
+    super().camera_follow(node)
     self.cameras['foreground'].Azimuth(self.rotation_speed)
-    self.cameras['foreground'].SetFocalPoint(0, 0, 0)
+    if self.camera_follows:
+        pos=np.array(self.camera_follows.get_world_position())
+        self.cameras['foreground'].SetFocalPoint(pos[0], pos[1], pos[2])
+    # Tell the VirgoInteractorStyle instance about our new camera position
+    self.interactor.GetInteractorStyle().StoreRelativeCameraInfo(None, None)
 
   def update(self):
     """
@@ -182,9 +200,7 @@ class VirgoScreenSaverControlCenter(VirgoControlCenter):
     self.display_weather()
     if self.mode == 'PLAYING':
         self.update_nodes()
-        self.move_camera()
-    # Auto-adjust clipping range
-    self.renderers['foreground'].ResetCameraClippingRange()
+        self.camera_follow(self.camera_follows)
 
 class VirgoScreenSaver(VirgoScene):
   """
@@ -218,6 +234,8 @@ class VirgoScreenSaver(VirgoScene):
     all actors in the node tree instead of the default SceneNodes
     """
     super().initialize_nodes(ancc=ScreenSaverNode)
+    # Move the earth to a realistic distance away in Y-dir
+    self.nodes['earth'].set_pose([0.0, 384000000, 0.0])
 
 
 class ScreenSaverNode(VirgoSceneNode):

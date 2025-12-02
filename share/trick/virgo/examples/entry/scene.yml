@@ -6,6 +6,7 @@ description: |
      to decay into layers of the atmosphere.  Upon reaching the atmopsheric
      interface, basic aerodynamic forces are applied until the spacecraft finally
      reaches an altitude <= 0.0 meters.
+resolution: 1280x720
 start_mode: PAUSED
 end_mode: PAUSED
 background_color: [0.0, 0.0, 0.05]

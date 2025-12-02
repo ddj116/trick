@@ -262,10 +262,12 @@ class VirgoDataFileSource(VirgoDataSource):
         #import pdb; pdb.set_trace()
         if not self.initialized:
             return None
+        # If asking for the next time results in list index error
+        # loop back to the beginning
         if  self._current_time_idx + 1 >= len(self._times):
-            return self._times[0]  # loop back to beginning
-        elif self._times[self._current_time_idx] > world_time:  
             return self._times[0]
+        #elif self._times[self._current_time_idx] > world_time:  
+        #    return self._times[self._current_time_idx]
         else:
             return(self._times[self._current_time_idx+1])
 

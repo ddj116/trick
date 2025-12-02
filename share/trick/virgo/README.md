@@ -67,10 +67,10 @@ If your use case needs more capabilites, see the [extending virgo](#extending-vi
 
 ## Module Dependencies
 
-This module requires python3.11 or later and the `pip` packages listed in `requirements.txt`. To pull down these packages to a standard python3.11+ virtual environment run the following in the directory you wish to create the `.venv`:
+This module requires python3.11 or later and the `pip` packages listed in `requirements.txt`. To pull down these packages to a standard python3 virtual environment run the following in the directory you wish to create the `.venv`:
 ```bash
-# Create a python3 virtual environment
-python3.11 -m venv .venv && source .venv/bin/activate 
+# Create a python3 virtual environment using python3.11 or later
+python3 -m venv .venv && source .venv/bin/activate 
 # Install virgo dependencies
 pip3 install --upgrade pip && pip3 install -r requirements.txt
 ```
@@ -86,11 +86,12 @@ source .venv/bin/activate
 * **VIRGO Actors** are 3D objects rendered in the scene and are defined by the `actors:` section of the scene dictionary. They can be positioned and oriented statically in the scene or driven by data sources.
   * **VIRGO Vectors** are **VIRGO Actors** that must be represented as an arrow in 3D space. Vectors are defined in the `vectors:` section of the scene dictionary and accept a position value which defines the tip of the vector to be drawn. 
   * **VIRGO Frames** are **VIRGO Actors** that have no mesh geometry. You can think of them as a reference frame positioned and oriented relative to some other reference frame or the world coordinates origin if the frame has no parent.
-* **VIRGO Nodes** define the scene graph tree by managing **VIRGO Actors, Frames, and Vectors** as well as their position and orientation with respect to their parent or world coordinates if no parent is defined. Every actor, frame, and vector is automatically assigned and parented to a unique node of the same name. When objects move in a VIRGO scene it's because their underlying **VIRGO Node** is moving.  
+* **VIRGO Nodes** define the scene graph tree by managing **VIRGO Actors, Frames, and Vectors** as well as their position and orientation with respect to their parent or world coordinates if no parent is defined. Every actor, frame, and vector is automatically assigned and parented to a unique node of the same name. When objects move in a VIRGO scene it's usually because their underlying **VIRGO Node** is moving through space.  
 * **Parents** allow nodes containing actors, frames, and vectors, to be defined relative to another actor, frame, or vector, by defining a `parent:` relationship. If a node has a parent that means all transformations on that node will be performed relative to that parent. Nodes and their parental relationships fully define one or more [directed acyclic graph trees](https://en.wikipedia.org/wiki/Tree_(graph_theory)) which contain all the information needed to determine world position/orientation of any actor in the scene.
 * **Root nodes** are nodes have no parents and therefore are positioned and oriented with respect to world coordinates (often considered inertial space)
-* **Data Sources** provide engineering data associated with actors, frames, and vectors. Typically this amounts to variable values at specific simulation times, for example the position of a cube over a 10 second period.
+* **Data Sources** provide engineering data associated with actors, frames, and vectors. Typically this amounts to variable values at specific simulation times, for example the position of a cube over a 10 second period can be articulated in a simple comma-separated-value  `*.csv` file. VIRGO data sources can be linked to labels as well.
 * **Labels** allow the user to display text positionally within the 3D scene. Each **VIRGO Actor, Vector, and Frame** may optionally define `labels:` to render static text or information from a **data source** as the user sees fit.
+* **World Time** refers to the time in the scene shown in the top left of the HUD. Note that this may not perfectly align with data from a **data source**. The lower left HUD shows verbose data from the data source when an actor is picked with right mouse click.
 
 ### Actors
 
@@ -148,7 +149,7 @@ Standalone examples can be found under the `examples/` directory.  See each dire
 
 [YAML](https://yaml.org/) provides a handy way to define python dictionaries and track them as code in a human-readable form. Note that YAML is not required to use VIRGO but you will need to provide VIRGO with a **scene dictionary** which fully defines the scene that will be rendered. The terms **scene**, **yaml file**, and **dictionary** may be used interchangeably in VIRGO documentation - ultimately they all refer to the same thing.
 
-Here we provide a YAML file template which describes in immense detail the sections of the scene recognized by the VIRGO framework. Use this reference in combination with `examples/*/scene.yml` as a starting point for setting up your scene. If you are unfamiliar with python dictionaries and how YAML can represent nested data structures we recommend you go through [this YAML tutorial](https://www.cloudbees.com/blog/yaml-tutorial-everything-you-need-get-started) before reading further.
+Here we provide a YAML file template which describes in immense detail the sections of the scene dictionary recognized by the VIRGO framework. Use this reference in combination with `examples/*/scene.yml` as a starting point for setting up your scene. If you are unfamiliar with python dictionaries and how YAML can represent nested data structures we recommend you go through [this YAML tutorial](https://www.cloudbees.com/blog/yaml-tutorial-everything-you-need-get-started) before reading further.
 
 ```yaml
 name:           # Optional string containing name of this scene
@@ -171,7 +172,7 @@ playback_speed:    # Optional float defining the default playback speed of
 starfield:         # Optional integer 1 or 0 (true or false) for defining if
                    #   the scene should start up with a background starfield
 data_source: # A dictionary which holds all data source definitions. Currently
-             #   only trickpy: is supported
+             #   only trickpy: is officially supported
   trickpy:   # The dictionary for trickpy data sources. Each key is an alias
              #   defined by the user and their sub-dict group: and var: values
              #   define the Trick data recording group and variable for this
@@ -222,6 +223,20 @@ actors:     # The dictionary which holds all actors in the scene. The
     pickable: 1  # Optional integer 1 or 0 (true or false) for defining if
                  #  this actor can be picked with right-mouse-click. Defaults
                  #  to 1/true
+    axes:   # The dictionary which holds information about this actor's axes
+      when: # Optional string setting for when interal axes should be
+            #   displayed with accepted values as follows:
+            #   toggled - show axes when global setting (key:'a') is toggled
+            #   picked  - show axes when setting toggled and actor is picked
+            #   always  - always show axes
+            #   never   - never show axes
+      style:  # Optional string setting for style of axes - line or cylinder
+      length: # Optional list of 3 floats describing the length of each axis
+              #  [x_axis, y_axis, z_axis]
+      affect_opacity: # Optional bool (0 or 1) setting for whether opacity
+                      #   of the actor should be reduced when axes are shown.
+                      #   Defaults to 1 (true).
+              #  [x_axis, y_axis, z_axis]
     trail:  # The dictionary which holds information about this actor's trail
       enabled:   # Integer 1 or 0 (true or false) for turning this trail on
                  #   when the interactive window starts
@@ -249,7 +264,8 @@ actors:     # The dictionary which holds all actors in the scene. The
                     #   to this actor's frame.  For those using JEOD, you want
                     #   this to link to an appropriate T_parent_this alias.
     labels:   # The labels: sub-dict defines text that is rendered in the 3D
-              #   scene. These can be static text or reference data_source aliases
+              #   scene. These can be static text or reference data_source aliases.
+              #   There is no limit to the number of labels an actor can have.
       myname:   # Required string representing user defined name for this label
         color:   # Optional list of 3 floats between 0.0-1.0 defining the
                  #   [red, green, blue] values of the color of this label
@@ -271,25 +287,31 @@ actors:     # The dictionary which holds all actors in the scene. The
                 #   with text facing in the +Z direction
     provide_aliases: # Optional list of data source alias key names. Additional
                      #   data source aliases to provide to this actor's node's
-                     #   self.data_source member. Primarily to support extending
-                     #   VirgoSceneNode capability.
+                     #   self.data_source member. This is an advanced feature
+                     #   primarily to support extending VirgoSceneNode capability
 
 frames:     # The dictionary which holds all frames in the scene. A frame is
-            #   an actor with no mesh, so refer to all fields described in the
-            #   actors: section above for what is supported in this dict
+            #   an actor with no mesh geometry - typically an oriented x-y-z
+            #   reference frame located somewhere in the scene.
+  my_frame: # User-chosen name for frame which acts as the key for this
+            #   individual frames's sub-dict. All fields supported by actors:
+            #   are also supported by frames, so refer to the versbose sub-dict
+            #   information in the actors: section above
 
 vectors:    # The dictionary which holds all vectors in the scene. A vector is
-            #   an actor whose mesh is automatically set to an 3D arrow. The
-            #   fields supported by vectors are identical to that of the actors:
-            #   section above, with a few additions and limitationss noted below
-            # Additions:
+            #   an actor whose mesh is automatically set to an 3D arrow. 
+  my_vec:   # User-chosen name for vector which acts as the key for
+            #   this individual vector's sub-dict. The fields supported by vectors
+            #   are identical to that of the actors: section above with a few
+            #   additions and limitationss noted below
+            # Additions of vectors (related to style of the vector arrow):
     tip_length:   # Optional percentage of total vector length occupied by tip
     tip_radius:   # Optional radius of cone base relative to total vector length
     shaft_radius: # Optional radius of cylinder forming vector shaft relative 
                   #   to total vector length
-            # Limitations:
+            # Limitations of vectors compared to actors:
     driven_by:   # The driven_by: sub-dict is the same as the actors: section
-                 #   described above, but onlly pos: is supported and rot: is
+                 #   described above, but only pos: is supported and rot: is
                  #   not used.
       time: time    # The time: key is required. It is linked to the time: alias
       pos: sat_pos  # The pos: key represents this vector's X,Y,Z components
